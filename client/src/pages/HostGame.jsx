@@ -217,7 +217,7 @@ export default function HostGame() {
               Join with game code
             </p>
             <h1
-              className="text-gradient mt-1 text-7xl font-extrabold tracking-[0.15em] sm:text-8xl"
+              className="text-gradient glow-code mt-1 text-7xl font-extrabold tracking-[0.15em] sm:text-8xl"
               style={{ fontFamily: 'var(--font-display)' }}
             >
               {gameCode}
@@ -318,8 +318,8 @@ export default function HostGame() {
                     animationDelay: `${i * 80}ms`,
                   }}
                 >
-                  <ShapeIcon shape={meta.shape} className="h-9 w-9 shrink-0 drop-shadow" />
-                  <span className="text-xl font-bold drop-shadow-sm sm:text-2xl">
+                  <ShapeIcon shape={meta.shape} className="h-10 w-10 shrink-0 drop-shadow sm:h-12 sm:w-12" />
+                  <span className="text-xl font-bold leading-snug drop-shadow-sm sm:text-3xl">
                     {question.options[key]}
                   </span>
                 </div>
@@ -345,9 +345,9 @@ export default function HostGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="mx-auto flex min-h-svh max-w-3xl flex-col gap-6 px-5 py-8 safe-bottom">
+        <div className="mx-auto flex min-h-svh max-w-3xl flex-col justify-center gap-6 px-5 py-8 safe-bottom">
           <h2
-            className="animate-question-in text-center text-3xl font-extrabold text-white"
+            className="animate-question-in text-center text-3xl font-extrabold text-white sm:text-4xl"
             style={{ fontFamily: 'var(--font-display)' }}
           >
             Question {revealData.index + 1} Results
@@ -415,7 +415,7 @@ export default function HostGame() {
 
   if (phase === 'ended') {
     return (
-      <div className="min-h-svh px-4 py-10 safe-bottom">
+      <div className="flex min-h-svh flex-col justify-center px-4 py-10 safe-bottom">
         <FinalLeaderboard leaderboard={finalLeaderboard ?? []} />
         <div className="mx-auto mt-10 flex max-w-md flex-col items-center gap-3">
           <button

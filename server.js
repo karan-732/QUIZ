@@ -27,6 +27,20 @@ app.get('/health', (_req, res) => {
 // Game history (read-only analytics over past sessions).
 // ---------------------------------------------------------------------------
 
+// PostgREST caps every response at 1000 rows regardless of .limit() — a
+// 60-player game already produces 300 rows, so anything reading responses
+// must page or it silently drops data.
+async function fetchAllPages(buildQuery, pageSize = 1000) {
+  const all = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    all.push(...data);
+    if (data.length < pageSize) break;
+  }
+  return all;
+}
+
 // GET /api/history — recent sessions with participant counts.
 app.get('/api/history', async (_req, res) => {
   try {
@@ -38,24 +52,18 @@ app.get('/api/history', async (_req, res) => {
 
     if (error) throw error;
 
-    const ids = sessions.map((s) => s.id);
-    let countsBySession = {};
-    if (ids.length > 0) {
-      const { data: rows, error: respError } = await supabase
-        .from('player_responses')
-        .select('session_id, nickname')
-        .in('session_id', ids);
-
-      if (respError) throw respError;
-
-      const sets = {};
-      for (const row of rows) {
-        (sets[row.session_id] ??= new Set()).add(row.nickname);
-      }
-      countsBySession = Object.fromEntries(
-        Object.entries(sets).map(([id, set]) => [id, set.size])
-      );
-    }
+    // One paged query per session: a single .in() query over all sessions
+    // truncates at the 1000-row cap once history grows, which zeroed out
+    // recent sessions' player counts.
+    const countsBySession = {};
+    await Promise.all(
+      sessions.map(async (s) => {
+        const rows = await fetchAllPages(() =>
+          supabase.from('player_responses').select('nickname').eq('session_id', s.id)
+        );
+        countsBySession[s.id] = new Set(rows.map((r) => r.nickname)).size;
+      })
+    );
 
     res.json({
       sessions: sessions.map((s) => ({
@@ -86,14 +94,15 @@ app.get('/api/history/:id', async (req, res) => {
 
     if (sessionError) throw sessionError;
 
-    const { data: rows, error: respError } = await supabase
-      .from('player_responses')
-      .select(
-        'nickname, selected_option, is_correct, response_time_ms, points_awarded, question_id, questions(question_text, correct_option, display_order)'
-      )
-      .eq('session_id', id);
-
-    if (respError) throw respError;
+    const rows = await fetchAllPages(() =>
+      supabase
+        .from('player_responses')
+        .select(
+          'nickname, selected_option, is_correct, response_time_ms, points_awarded, question_id, questions(question_text, correct_option, display_order)'
+        )
+        .eq('session_id', id)
+        .order('created_at', { ascending: true })
+    );
 
     // Questions actually answered in this session, in quiz order.
     const questionById = new Map();

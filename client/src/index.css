@@ -244,6 +244,25 @@ body {
   animation: shake 0.3s ease-in-out 2;
 }
 
+@keyframes drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-18px) rotate(8deg);
+  }
+}
+
+.animate-drift {
+  animation: drift 7s ease-in-out infinite;
+}
+
+/* Soft neon halo for the big game code */
+.glow-code {
+  filter: drop-shadow(0 0 28px rgba(139, 92, 246, 0.45));
+}
+
 /* Battery-friendly + vestibular-safe */
 @media (prefers-reduced-motion: reduce) {
   *,

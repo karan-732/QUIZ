@@ -6,6 +6,7 @@ import { calculatePoints } from '../utils/scoring.js';
 import {
   MAX_PLAYERS_PER_ROOM,
   MAX_ACTIVE_ROOMS,
+  MAX_NICKNAME_LENGTH,
   createRoom,
   getRoom,
   getAllRooms,
@@ -15,7 +16,8 @@ import {
   touchRoom,
   clearRoomTimers,
   addOrRestorePlayer,
-  getPlayer,
+  getPlayerByToken,
+  resolveNickname,
   getSocketMeta,
   setSocketMeta,
   removeSocketMeta,
@@ -27,11 +29,17 @@ import {
   getAnswerStats,
   getLeaderboard,
   toPublicQuestion,
+  toHostQuestion,
 } from '../state/roomStore.js';
 
 const QUESTION_COUNT = 5;
-const MAX_NICKNAME_LENGTH = 20;
 const FINAL_LEADERBOARD_SIZE = 10;
+
+// Bounds for host question edits.
+const MAX_QUESTION_LENGTH = 300;
+const MAX_OPTION_LENGTH = 150;
+const MIN_TIME_LIMIT_S = 5;
+const MAX_TIME_LIMIT_S = 180;
 
 // Answers that are in flight when the visual timer hits zero shouldn't be
 // unfairly dropped — accept them for a short network-grace window, then the
@@ -285,7 +293,9 @@ export function registerGameSocket(io) {
     // -----------------------------------------------------------------
     // HOST: create-room
     // Pulls the 5 fixed default questions from Supabase, opens a
-    // game_sessions row, and stands up the in-memory room.
+    // game_sessions row, and stands up the in-memory room. The ack
+    // includes the full questions (with answers) so the host can review
+    // and edit them in the lobby before starting.
     // -----------------------------------------------------------------
     socket.on('create-room', async (_payload, callback) => {
       const ack = typeof callback === 'function' ? callback : () => {};
@@ -346,11 +356,76 @@ export function registerGameSocket(io) {
           hostToken,
           sessionId: session.id,
           totalQuestions: room.questions.length,
+          questions: room.questions.map(toHostQuestion),
         });
       } catch (err) {
         console.error('[create-room] failed:', err.message);
         ack({ ok: false, error: 'Failed to create room. Please try again.' });
       }
+    });
+
+    // -----------------------------------------------------------------
+    // HOST: update-question
+    // Lobby-only pre-game editing of this session's questions (text,
+    // options, correct answer, time limit). Edits live in room memory —
+    // the shared question bank in Supabase is never mutated.
+    // -----------------------------------------------------------------
+    socket.on('update-question', (payload, callback) => {
+      const ctx = requireHost(socket, callback);
+      if (!ctx) return;
+      const { room, ack } = ctx;
+
+      if (room.status !== 'lobby') {
+        return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
+      }
+
+      const index = Number(payload?.index);
+      if (!Number.isInteger(index) || index < 0 || index >= room.questions.length) {
+        return ack({ ok: false, error: 'Invalid question index.' });
+      }
+
+      const questionText = String(payload?.questionText ?? '').trim().slice(0, MAX_QUESTION_LENGTH);
+      const options = payload?.options ?? {};
+      const cleaned = {};
+      for (const key of ['A', 'B', 'C', 'D']) {
+        cleaned[key] = String(options[key] ?? '').trim().slice(0, MAX_OPTION_LENGTH);
+        if (!cleaned[key]) {
+          return ack({ ok: false, error: `Option ${key} cannot be empty.` });
+        }
+      }
+
+      if (!questionText) {
+        return ack({ ok: false, error: 'Question text cannot be empty.' });
+      }
+
+      const correctOption = String(payload?.correctOption ?? '').toUpperCase();
+      if (!['A', 'B', 'C', 'D'].includes(correctOption)) {
+        return ack({ ok: false, error: 'Correct option must be A, B, C, or D.' });
+      }
+
+      const timeLimitSeconds = Math.round(Number(payload?.timeLimitSeconds));
+      if (
+        !Number.isFinite(timeLimitSeconds) ||
+        timeLimitSeconds < MIN_TIME_LIMIT_S ||
+        timeLimitSeconds > MAX_TIME_LIMIT_S
+      ) {
+        return ack({
+          ok: false,
+          error: `Time limit must be between ${MIN_TIME_LIMIT_S} and ${MAX_TIME_LIMIT_S} seconds.`,
+        });
+      }
+
+      const question = room.questions[index];
+      question.question_text = questionText;
+      question.option_a = cleaned.A;
+      question.option_b = cleaned.B;
+      question.option_c = cleaned.C;
+      question.option_d = cleaned.D;
+      question.correct_option = correctOption;
+      question.time_limit_seconds = timeLimitSeconds;
+      touchRoom(room);
+
+      ack({ ok: true, question: toHostQuestion(question, index) });
     });
 
     // -----------------------------------------------------------------
@@ -374,7 +449,7 @@ export function registerGameSocket(io) {
       room.hostSocketId = socket.id;
       room.hostConnected = true;
       touchRoom(room);
-      setSocketMeta(socket.id, { gameCode, nickname: null, role: 'host' });
+      setSocketMeta(socket.id, { gameCode, role: 'host', token: null, nickname: null });
       socket.join(gameCode);
 
       if (room.hostGraceTimer) {
@@ -388,8 +463,10 @@ export function registerGameSocket(io) {
       ack({
         ok: true,
         gameCode,
+        sessionId: room.sessionId,
         ...snapshot,
         players: getPublicPlayerList(room),
+        questions: room.status === 'lobby' ? room.questions.map(toHostQuestion) : undefined,
         answerProgress:
           room.status === 'question'
             ? {
@@ -402,10 +479,11 @@ export function registerGameSocket(io) {
 
     // -----------------------------------------------------------------
     // PLAYER: join-room
-    // Also doubles as the "rejoin" path: if the nickname already exists
-    // in the room and is currently disconnected, this restores that
-    // player's socket + score instead of creating a new one. The ack
-    // carries a full snapshot so a mid-question refresh resumes cleanly.
+    // Identity is the client-generated playerToken, not the nickname:
+    //   - same token  -> rejoin (refresh/reconnect/tab takeover), score kept
+    //   - name collision from a DIFFERENT person -> auto-suffix "Karan 2"
+    // The ack carries a full snapshot so a mid-question refresh resumes
+    // cleanly.
     // -----------------------------------------------------------------
     socket.on('join-room', (payload, callback) => {
       const ack = typeof callback === 'function' ? callback : () => {};
@@ -415,13 +493,14 @@ export function registerGameSocket(io) {
       }
 
       const gameCode = String(payload?.gameCode ?? '').trim();
-      const nickname = sanitizeNickname(payload?.nickname);
+      const requestedNickname = sanitizeNickname(payload?.nickname);
+      const playerToken = String(payload?.playerToken ?? '').slice(0, 64) || randomUUID();
 
       if (!/^\d{4}$/.test(gameCode)) {
         return ack({ ok: false, error: 'Invalid game code.' });
       }
 
-      if (!nickname) {
+      if (!requestedNickname) {
         return ack({
           ok: false,
           error: `Nickname must be 1-${MAX_NICKNAME_LENGTH} characters (letters, numbers, spaces).`,
@@ -433,10 +512,7 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'Room not found. Check the code and try again.' });
       }
 
-      const existing = getPlayer(room, nickname);
-      if (existing && existing.connected && existing.socketId !== socket.id) {
-        return ack({ ok: false, error: 'That nickname is already taken in this room.' });
-      }
+      const existing = getPlayerByToken(room, playerToken);
 
       if (!existing && room.status !== 'lobby') {
         return ack({ ok: false, error: 'This game has already started.' });
@@ -446,6 +522,20 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'This room is full.' });
       }
 
+      // Known player opening a second tab: hand the game to the new tab and
+      // cleanly drop the old one instead of erroring with "name taken".
+      if (existing && existing.connected && existing.socketId && existing.socketId !== socket.id) {
+        const oldSocket = io.sockets.sockets.get(existing.socketId);
+        oldSocket?.emit('session-superseded');
+        oldSocket?.disconnect(true);
+      }
+
+      // New players get a collision-free display name ("Karan" -> "Karan 2").
+      let nickname = existing ? existing.nickname : resolveNickname(room, requestedNickname);
+      if (!nickname) {
+        return ack({ ok: false, error: 'Could not find a free nickname — try another name.' });
+      }
+
       // A socket hopping rooms (e.g. joined the wrong code first) must not
       // remain a member of the previous room.
       const previousMeta = getSocketMeta(socket.id);
@@ -453,12 +543,16 @@ export function registerGameSocket(io) {
         const previousRoom = getRoom(previousMeta.gameCode);
         socket.leave(previousMeta.gameCode);
         if (previousRoom) {
-          markPlayerDisconnected(previousRoom, previousMeta.nickname);
+          markPlayerDisconnected(previousRoom, previousMeta.token);
           scheduleRoomBroadcast(io, previousRoom);
         }
       }
 
-      const { player, rejoined } = addOrRestorePlayer(room, { nickname, socketId: socket.id });
+      const { player, rejoined } = addOrRestorePlayer(room, {
+        token: playerToken,
+        nickname,
+        socketId: socket.id,
+      });
       socket.join(gameCode);
       touchRoom(room);
 
@@ -470,6 +564,8 @@ export function registerGameSocket(io) {
         ok: true,
         gameCode,
         nickname: player.nickname,
+        renamed: player.nickname !== requestedNickname,
+        playerToken,
         score: player.score,
         rejoined,
         ...snapshot,
@@ -552,7 +648,7 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'Invalid option.' });
       }
 
-      if (hasAnswered(room, meta.nickname, room.currentQuestionIndex)) {
+      if (hasAnswered(room, meta.token, room.currentQuestionIndex)) {
         return ack({ ok: false, error: 'You already answered this question.' });
       }
 
@@ -562,12 +658,16 @@ export function registerGameSocket(io) {
       const isCorrect = selectedOption === question.correct_option;
       const points = calculatePoints({ isCorrect, responseTimeMs, totalTimeMs });
 
-      const player = recordAnswer(room, meta.nickname, room.currentQuestionIndex, {
+      const player = recordAnswer(room, meta.token, room.currentQuestionIndex, {
         selectedOption,
         responseTimeMs,
         isCorrect,
         points,
       });
+
+      if (!player) {
+        return ack({ ok: false, error: 'You are not in this game.' });
+      }
 
       touchRoom(room);
       ack({ ok: true, isCorrect, points, totalScore: player.score });
@@ -576,7 +676,7 @@ export function registerGameSocket(io) {
       // concurrent single-row writes mid-question.
       room.pendingResponses.push({
         session_id: room.sessionId,
-        nickname: meta.nickname,
+        nickname: player.nickname,
         question_id: question.id,
         selected_option: selectedOption,
         is_correct: isCorrect,
@@ -634,7 +734,7 @@ export function registerGameSocket(io) {
 
     // -----------------------------------------------------------------
     // disconnect: keep the player's score in memory so they can rejoin
-    // with the same nickname via join-room later. Host disconnects start
+    // with the same token via join-room later. Host disconnects start
     // a reclaim grace window; if the host never comes back the room is
     // closed so 60 players aren't left staring at a frozen screen.
     // -----------------------------------------------------------------
@@ -667,7 +767,12 @@ export function registerGameSocket(io) {
         return;
       }
 
-      markPlayerDisconnected(room, meta.nickname);
+      // A newer socket may have already taken over this player (tab
+      // takeover) — only mark disconnected if this socket still owns them.
+      const player = getPlayerByToken(room, meta.token);
+      if (player && player.socketId && player.socketId !== socket.id) return;
+
+      markPlayerDisconnected(room, meta.token);
       scheduleRoomBroadcast(io, room);
       if (room.status === 'question') emitAnswerProgress(io, room);
 

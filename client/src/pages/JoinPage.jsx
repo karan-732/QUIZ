@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import Avatar from '../components/Avatar';
 
 export default function JoinPage() {
   const { code } = useParams();
@@ -34,6 +35,11 @@ export default function JoinPage() {
       return fail('Enter a nickname.');
     }
 
+    // Stable per-tab identity: lets the server recognize this player across
+    // refreshes/reconnects even if someone else took the same nickname.
+    if (!sessionStorage.getItem('quiz.playerToken')) {
+      sessionStorage.setItem('quiz.playerToken', crypto.randomUUID());
+    }
     sessionStorage.setItem('quiz.gameCode', gameCode);
     sessionStorage.setItem('quiz.nickname', nickname.trim());
     navigate('/play');
@@ -74,15 +80,22 @@ export default function JoinPage() {
         <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-slate-400">
           Nickname
         </label>
-        <input
-          ref={nameInputRef}
-          value={nickname}
-          onChange={(e) => setNickname(e.target.value.slice(0, 20))}
-          placeholder="Your name"
-          maxLength={20}
-          autoComplete="off"
-          className="mb-5 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-lg font-semibold text-white outline-none transition placeholder:text-slate-600 focus:border-brand-400 focus:bg-white/[0.08] focus:ring-4 focus:ring-brand-500/20"
-        />
+        <div className="relative mb-5">
+          <input
+            ref={nameInputRef}
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value.slice(0, 20))}
+            placeholder="Your name"
+            maxLength={20}
+            autoComplete="off"
+            className="w-full rounded-2xl border border-white/10 bg-white/5 py-3.5 pl-4 pr-14 text-lg font-semibold text-white outline-none transition placeholder:text-slate-600 focus:border-brand-400 focus:bg-white/[0.08] focus:ring-4 focus:ring-brand-500/20"
+          />
+          {nickname.trim() && (
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+              <Avatar nickname={nickname.trim()} size="md" />
+            </span>
+          )}
+        </div>
 
         {error && (
           <p className="animate-fade-in mb-5 rounded-xl bg-red-500/10 px-3 py-2 text-center text-sm font-semibold text-red-400 ring-1 ring-red-500/25">

@@ -5,7 +5,9 @@
  * cache for an active session (scores, connection status, timers).
  * Supabase only receives durable logs (sessions + batched responses).
  *
- * Shape:
+ * Players are keyed by a client-generated `playerToken` (one per tab), NOT
+ * by nickname: the token is the identity that survives refreshes, while
+ * nicknames are display-only and deduplicated with a numeric suffix.
  *
  * Room {
  *   gameCode: string
@@ -26,11 +28,13 @@
  *   lastRevealStats: object | null     // cached reveal payload for host/player rejoin
  *   finalLeaderboard: object[] | null
  *   lastActivityAt: number
- *   players: Map<lowercased nickname, Player>
+ *   players: Map<playerToken, Player>
+ *   nicknameIndex: Map<lowercased nickname, playerToken>
  * }
  *
  * Player {
- *   nickname: string             // original casing, shown in UI
+ *   token: string
+ *   nickname: string             // display name, unique per room (suffixum if needed)
  *   socketId: string | null      // null while disconnected
  *   connected: boolean
  *   score: number
@@ -40,16 +44,15 @@
 
 export const MAX_PLAYERS_PER_ROOM = 200;
 export const MAX_ACTIVE_ROOMS = 100;
+export const MAX_NICKNAME_LENGTH = 20;
 
 // gameCode -> Room
 const rooms = new Map();
 
-// socket.id -> { gameCode, nickname | null, role: 'host' | 'player' }
+// socket.id -> { gameCode, role: 'host' | 'player', token | null, nickname | null }
 // Lets disconnect handlers find "who was this socket" in O(1) without
 // scanning every room.
 const socketIndex = new Map();
-
-const playerKey = (nickname) => nickname.toLowerCase();
 
 export function createRoom({ gameCode, sessionId, hostSocketId, hostToken, questions }) {
   const room = {
@@ -72,10 +75,11 @@ export function createRoom({ gameCode, sessionId, hostSocketId, hostToken, quest
     finalLeaderboard: null,
     lastActivityAt: Date.now(),
     players: new Map(),
+    nicknameIndex: new Map(),
   };
 
   rooms.set(gameCode, room);
-  socketIndex.set(hostSocketId, { gameCode, nickname: null, role: 'host' });
+  socketIndex.set(hostSocketId, { gameCode, role: 'host', token: null, nickname: null });
 
   return room;
 }
@@ -122,27 +126,50 @@ export function deleteRoom(gameCode) {
   rooms.delete(gameCode);
 }
 
-export function getPlayer(room, nickname) {
-  return room.players.get(playerKey(nickname));
+export function getPlayerByToken(room, token) {
+  return room.players.get(token);
 }
 
-export function addOrRestorePlayer(room, { nickname, socketId }) {
-  const key = playerKey(nickname);
-  const existing = room.players.get(key);
+/**
+ * Returns `requested` if free, otherwise "requested 2", "requested 3", …
+ * so two Karans can both join instead of the second being bounced.
+ * Suffixed names still respect the max nickname length.
+ */
+export function resolveNickname(room, requested) {
+  const taken = (name) => room.nicknameIndex.has(name.toLowerCase());
+  if (!taken(requested)) return requested;
+
+  for (let n = 2; n < 1000; n += 1) {
+    const suffix = ` ${n}`;
+    const base = requested.slice(0, MAX_NICKNAME_LENGTH - suffix.length).trimEnd();
+    const candidate = `${base}${suffix}`;
+    if (!taken(candidate)) return candidate;
+  }
+  return null;
+}
+
+export function addOrRestorePlayer(room, { token, nickname, socketId }) {
+  const existing = room.players.get(token);
 
   if (existing) {
-    // A stale socket for the same player (e.g. zombie tab) shouldn't keep
-    // an index entry pointing at this player.
+    // Same identity coming back (refresh / reconnect / extra tab). Any old
+    // socket for this player must not keep an index entry pointing at them.
     if (existing.socketId && existing.socketId !== socketId) {
       socketIndex.delete(existing.socketId);
     }
     existing.socketId = socketId;
     existing.connected = true;
-    socketIndex.set(socketId, { gameCode: room.gameCode, nickname: existing.nickname, role: 'player' });
+    socketIndex.set(socketId, {
+      gameCode: room.gameCode,
+      role: 'player',
+      token,
+      nickname: existing.nickname,
+    });
     return { player: existing, rejoined: true };
   }
 
   const player = {
+    token,
     nickname,
     socketId,
     connected: true,
@@ -150,8 +177,9 @@ export function addOrRestorePlayer(room, { nickname, socketId }) {
     answers: new Map(),
   };
 
-  room.players.set(key, player);
-  socketIndex.set(socketId, { gameCode: room.gameCode, nickname, role: 'player' });
+  room.players.set(token, player);
+  room.nicknameIndex.set(nickname.toLowerCase(), token);
+  socketIndex.set(socketId, { gameCode: room.gameCode, role: 'player', token, nickname });
 
   return { player, rejoined: false };
 }
@@ -168,8 +196,8 @@ export function removeSocketMeta(socketId) {
   socketIndex.delete(socketId);
 }
 
-export function markPlayerDisconnected(room, nickname) {
-  const player = getPlayer(room, nickname);
+export function markPlayerDisconnected(room, token) {
+  const player = room.players.get(token);
   if (!player) return;
 
   if (player.socketId) socketIndex.delete(player.socketId);
@@ -200,8 +228,8 @@ export function getConnectedPlayerCount(room) {
   return count;
 }
 
-export function recordAnswer(room, nickname, questionIndex, result) {
-  const player = getPlayer(room, nickname);
+export function recordAnswer(room, token, questionIndex, result) {
+  const player = room.players.get(token);
   if (!player) return null;
 
   player.answers.set(questionIndex, result);
@@ -209,8 +237,8 @@ export function recordAnswer(room, nickname, questionIndex, result) {
   return player;
 }
 
-export function hasAnswered(room, nickname, questionIndex) {
-  const player = getPlayer(room, nickname);
+export function hasAnswered(room, token, questionIndex) {
+  const player = room.players.get(token);
   return Boolean(player?.answers.get(questionIndex));
 }
 
@@ -261,5 +289,25 @@ export function toPublicQuestion(question, index, total, timeRemainingMs = null)
     },
     timeLimitSeconds: question.time_limit_seconds,
     timeRemainingMs: timeRemainingMs ?? totalMs,
+  };
+}
+
+/**
+ * Host-only view of a question: includes the correct answer, for the
+ * pre-game review/edit panel. Never send this to players.
+ */
+export function toHostQuestion(question, index) {
+  return {
+    index,
+    id: question.id,
+    questionText: question.question_text,
+    options: {
+      A: question.option_a,
+      B: question.option_b,
+      C: question.option_c,
+      D: question.option_d,
+    },
+    correctOption: question.correct_option,
+    timeLimitSeconds: question.time_limit_seconds,
   };
 }

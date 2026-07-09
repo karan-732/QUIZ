@@ -4,6 +4,7 @@ import { ensureConnected, socket } from '../lib/socket';
 import { OPTION_KEYS, SHAPE_META } from '../lib/shapes';
 import ShapeButton from '../components/ShapeButton';
 import ShapeIcon from '../components/ShapeIcon';
+import Avatar from '../components/Avatar';
 import Timer from '../components/Timer';
 import FinalLeaderboard from '../components/FinalLeaderboard';
 import CenteredMessage from '../components/CenteredMessage';
@@ -11,8 +12,10 @@ import ConnectionBanner from '../components/ConnectionBanner';
 
 export default function PlayerGame() {
   const navigate = useNavigate();
-  // connecting | lobby | question | locked | reveal | ended | closed
+  // connecting | lobby | question | locked | reveal | ended | closed | superseded
   const [phase, setPhase] = useState('connecting');
+  const [nickname, setNickname] = useState('');
+  const [renamedFrom, setRenamedFrom] = useState(null);
   const [question, setQuestion] = useState(null);
   const [selected, setSelected] = useState(null);
   const [lastResult, setLastResult] = useState(null);
@@ -22,29 +25,40 @@ export default function PlayerGame() {
   const [hostGone, setHostGone] = useState(false);
   const [playerCount, setPlayerCount] = useState(0);
   const [closedReason, setClosedReason] = useState(null);
-  const creds = useRef(null);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
   useEffect(() => {
     const gameCode = sessionStorage.getItem('quiz.gameCode');
-    const nickname = sessionStorage.getItem('quiz.nickname');
+    const requestedNickname = sessionStorage.getItem('quiz.nickname');
+    let playerToken = sessionStorage.getItem('quiz.playerToken');
+    if (!playerToken) {
+      playerToken = crypto.randomUUID();
+      sessionStorage.setItem('quiz.playerToken', playerToken);
+    }
 
-    if (!gameCode || !nickname) {
+    if (!gameCode || !requestedNickname) {
       navigate('/join');
       return;
     }
-    creds.current = { gameCode, nickname };
 
     // Runs on first mount AND every reconnect. The ack carries a full room
     // snapshot, so a refresh or dropped connection mid-question lands the
     // player exactly where the game currently is.
     const doJoin = () => {
-      socket.emit('join-room', { gameCode, nickname }, (res) => {
+      if (phaseRef.current === 'superseded') return;
+      socket.emit('join-room', { gameCode, nickname: requestedNickname, playerToken }, (res) => {
         if (!res.ok) {
           navigate(`/join?error=${encodeURIComponent(res.error)}`);
           return;
         }
+
+        // The server may have adjusted the name ("Karan" -> "Karan 2") and
+        // is the authority on our identity — persist both for next refresh.
+        sessionStorage.setItem('quiz.nickname', res.nickname);
+        sessionStorage.setItem('quiz.playerToken', res.playerToken);
+        setNickname(res.nickname);
+        setRenamedFrom(res.renamed ? requestedNickname : null);
 
         setScore(res.score);
         setHostGone(!res.hostConnected);
@@ -110,6 +124,11 @@ export default function PlayerGame() {
       setClosedReason(reason);
       setPhase('closed');
     };
+    const onSuperseded = () => {
+      // Another tab took over this player — stop competing for the session.
+      setPhase('superseded');
+      socket.disconnect();
+    };
 
     socket.on('connect', doJoin);
     socket.on('question-started', onQuestionStarted);
@@ -119,6 +138,7 @@ export default function PlayerGame() {
     socket.on('host-disconnected', onHostDisconnected);
     socket.on('host-reconnected', onHostReconnected);
     socket.on('room-closed', onRoomClosed);
+    socket.on('session-superseded', onSuperseded);
 
     ensureConnected();
     if (socket.connected) doJoin();
@@ -132,6 +152,7 @@ export default function PlayerGame() {
       socket.off('host-disconnected', onHostDisconnected);
       socket.off('host-reconnected', onHostReconnected);
       socket.off('room-closed', onRoomClosed);
+      socket.off('session-superseded', onSuperseded);
     };
   }, [navigate]);
 
@@ -165,6 +186,15 @@ export default function PlayerGame() {
     );
   }
 
+  if (phase === 'superseded') {
+    return (
+      <CenteredMessage
+        title="Game open in another tab"
+        subtitle="You joined this game from a newer tab or device — keep playing there."
+      />
+    );
+  }
+
   if (phase === 'closed') {
     return (
       <CenteredMessage
@@ -190,17 +220,22 @@ export default function PlayerGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="bg-arena flex min-h-svh flex-col items-center justify-center gap-5 px-6 text-center safe-bottom">
-          <div className="animate-pop-in flex h-20 w-20 items-center justify-center rounded-3xl bg-brand-500/15 text-4xl ring-1 ring-brand-500/30">
-            🎉
-          </div>
+        <div className="flex min-h-svh flex-col items-center justify-center gap-5 px-6 text-center safe-bottom">
+          <span className="animate-pop-in">
+            <Avatar nickname={nickname} size="xl" />
+          </span>
           <div>
             <h1
               className="text-3xl font-extrabold text-white"
               style={{ fontFamily: 'var(--font-display)' }}
             >
-              You're in, {creds.current?.nickname}!
+              You're in, {nickname}!
             </h1>
+            {renamedFrom && (
+              <p className="animate-fade-in mt-2 rounded-full bg-amber-500/10 px-4 py-1.5 text-sm font-semibold text-amber-300 ring-1 ring-amber-500/25">
+                "{renamedFrom}" was taken, so you're {nickname}
+              </p>
+            )}
             <p className="mt-2 text-slate-400">Waiting for the host to start the game…</p>
           </div>
           {playerCount > 1 && (
@@ -223,14 +258,13 @@ export default function PlayerGame() {
   }
 
   if (phase === 'ended') {
-    const myNickname = creds.current?.nickname ?? '';
     const rank = finalLeaderboard?.findIndex(
-      (p) => p.nickname.toLowerCase() === myNickname.toLowerCase()
+      (p) => p.nickname.toLowerCase() === nickname.toLowerCase()
     );
     const mine = rank >= 0 ? finalLeaderboard[rank] : null;
     return (
-      <div className="bg-arena min-h-svh px-4 py-10 safe-bottom">
-        <FinalLeaderboard leaderboard={finalLeaderboard ?? []} highlightNickname={myNickname} />
+      <div className="min-h-svh px-4 py-10 safe-bottom">
+        <FinalLeaderboard leaderboard={finalLeaderboard ?? []} highlightNickname={nickname} />
         <p className="animate-fade-in mt-8 text-center font-semibold text-slate-300">
           {mine
             ? `You finished #${rank + 1} with ${mine.score} points 🎯`
@@ -244,7 +278,7 @@ export default function PlayerGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="bg-arena flex min-h-svh flex-col gap-4 px-4 pt-4 safe-bottom">
+        <div className="flex min-h-svh flex-col gap-4 px-4 pt-4 safe-bottom">
           {hostGone && (
             <div className="animate-fade-in rounded-xl bg-amber-500/15 px-3 py-2 text-center text-sm font-semibold text-amber-300 ring-1 ring-amber-500/25">
               Host disconnected — hang tight, the game will resume.
@@ -252,7 +286,8 @@ export default function PlayerGame() {
           )}
 
           <div className="flex items-center justify-between">
-            <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-bold text-slate-400 ring-1 ring-white/10">
+            <span className="flex items-center gap-2 rounded-full bg-white/5 py-1 pl-1 pr-3 text-xs font-bold text-slate-300 ring-1 ring-white/10">
+              <Avatar nickname={nickname} size="sm" />
               Q{question.index + 1} / {question.total}
             </span>
             <span className="rounded-full bg-brand-500/15 px-3 py-1 text-xs font-bold tabular-nums text-brand-300 ring-1 ring-brand-500/30">
@@ -303,7 +338,7 @@ export default function PlayerGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="bg-arena flex min-h-svh flex-col items-center justify-center gap-5 px-6 text-center safe-bottom">
+        <div className="flex min-h-svh flex-col items-center justify-center gap-5 px-6 text-center safe-bottom">
           {lastResult ? (
             <>
               <div

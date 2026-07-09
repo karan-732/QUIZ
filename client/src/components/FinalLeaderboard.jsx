@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
+import Avatar from './Avatar';
 
 const PODIUM_STYLES = {
   1: {
@@ -81,7 +82,8 @@ export default function FinalLeaderboard({ leaderboard, highlightNickname }) {
                 ].join(' ')}
                 style={{ animationDelay: `${revealDelays[i]}ms` }}
               >
-                <span className="text-4xl">{style.medal}</span>
+                <span className="text-3xl">{style.medal}</span>
+                <Avatar nickname={entry.nickname} size="lg" />
                 <span className="max-w-[10rem] truncate text-center text-lg font-bold text-white">
                   {entry.nickname}
                 </span>
@@ -109,6 +111,7 @@ export default function FinalLeaderboard({ leaderboard, highlightNickname }) {
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/5 text-xs font-bold text-slate-400 ring-1 ring-white/10">
                   {i + 4}
                 </span>
+                <Avatar nickname={entry.nickname} size="sm" />
                 <span className="max-w-48 truncate">{entry.nickname}</span>
               </span>
               <span className="font-bold tabular-nums text-slate-300">{entry.score} pts</span>

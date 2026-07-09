@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ensureConnected, socket } from '../lib/socket';
 import { OPTION_KEYS, SHAPE_META } from '../lib/shapes';
 import QRCodeCard from '../components/QRCodeCard';
 import PlayerListLive from '../components/PlayerListLive';
+import QuestionEditor from '../components/QuestionEditor';
 import ShapeIcon from '../components/ShapeIcon';
 import Timer from '../components/Timer';
 import MiniLeaderboard from '../components/MiniLeaderboard';
@@ -16,7 +18,9 @@ export default function HostGame() {
   // creating | lobby | question | reveal | ended | error
   const [phase, setPhase] = useState('creating');
   const [gameCode, setGameCode] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [questions, setQuestions] = useState([]);
   const [question, setQuestion] = useState(null);
   const [answerProgress, setAnswerProgress] = useState({ answered: 0, total: 0 });
   const [revealData, setRevealData] = useState(null);
@@ -29,6 +33,7 @@ export default function HostGame() {
   const createRoom = () => {
     setPhase('creating');
     setPlayers([]);
+    setQuestions([]);
     setQuestion(null);
     setRevealData(null);
     setFinalLeaderboard(null);
@@ -44,6 +49,8 @@ export default function HostGame() {
         JSON.stringify({ gameCode: res.gameCode, hostToken: res.hostToken })
       );
       setGameCode(res.gameCode);
+      setSessionId(res.sessionId);
+      setQuestions(res.questions ?? []);
       setPhase('lobby');
     });
   };
@@ -53,7 +60,9 @@ export default function HostGame() {
     // or reconnect — the game keeps running server-side either way.
     const applySnapshot = (res) => {
       setGameCode(res.gameCode);
+      setSessionId(res.sessionId ?? null);
       setPlayers(res.players ?? []);
+      if (res.questions) setQuestions(res.questions);
       setError('');
 
       if (res.status === 'lobby') {
@@ -163,6 +172,15 @@ export default function HostGame() {
     });
   };
 
+  const handleSaveQuestion = (index, draft, done) => {
+    socket.emit('update-question', { index, ...draft }, (res) => {
+      if (res.ok) {
+        setQuestions((prev) => prev.map((q, i) => (i === index ? res.question : q)));
+      }
+      done(res);
+    });
+  };
+
   const joinUrl = gameCode ? `${window.location.origin}/join/${gameCode}` : '';
   const connectedCount = players.filter((p) => p.connected).length;
 
@@ -193,7 +211,7 @@ export default function HostGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="bg-arena mx-auto flex min-h-svh max-w-4xl flex-col gap-7 px-5 py-8 safe-bottom sm:px-8">
+        <div className="mx-auto flex min-h-svh max-w-4xl flex-col gap-7 px-5 py-8 safe-bottom sm:px-8">
           <header className="animate-float-up text-center">
             <p className="text-xs font-bold uppercase tracking-[0.3em] text-brand-400">
               Join with game code
@@ -204,12 +222,24 @@ export default function HostGame() {
             >
               {gameCode}
             </h1>
+            <Link
+              to="/history"
+              className="mt-2 inline-block text-sm font-semibold text-slate-500 underline-offset-4 transition hover:text-brand-300 hover:underline"
+            >
+              View past games →
+            </Link>
           </header>
 
           <div className="animate-float-up grid gap-5 sm:grid-cols-[auto_1fr]" style={{ animationDelay: '120ms' }}>
             <QRCodeCard joinUrl={joinUrl} />
             <PlayerListLive players={players} />
           </div>
+
+          {questions.length > 0 && (
+            <div className="animate-float-up" style={{ animationDelay: '200ms' }}>
+              <QuestionEditor questions={questions} onSave={handleSaveQuestion} />
+            </div>
+          )}
 
           {error && (
             <p className="animate-fade-in text-center font-semibold text-red-400">{error}</p>
@@ -244,7 +274,7 @@ export default function HostGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="bg-arena flex min-h-svh flex-col gap-5 px-5 py-6 safe-bottom sm:px-10">
+        <div className="flex min-h-svh flex-col gap-5 px-5 py-6 safe-bottom sm:px-10">
           <div className="flex items-center justify-between">
             <span className="rounded-full bg-white/5 px-4 py-1.5 text-sm font-bold text-slate-300 ring-1 ring-white/10">
               Question {question.index + 1} / {question.total}
@@ -315,7 +345,7 @@ export default function HostGame() {
     return (
       <>
         <ConnectionBanner />
-        <div className="bg-arena mx-auto flex min-h-svh max-w-3xl flex-col gap-6 px-5 py-8 safe-bottom">
+        <div className="mx-auto flex min-h-svh max-w-3xl flex-col gap-6 px-5 py-8 safe-bottom">
           <h2
             className="animate-question-in text-center text-3xl font-extrabold text-white"
             style={{ fontFamily: 'var(--font-display)' }}
@@ -385,15 +415,23 @@ export default function HostGame() {
 
   if (phase === 'ended') {
     return (
-      <div className="bg-arena min-h-svh px-4 py-10 safe-bottom">
+      <div className="min-h-svh px-4 py-10 safe-bottom">
         <FinalLeaderboard leaderboard={finalLeaderboard ?? []} />
-        <button
-          type="button"
-          onClick={createRoom}
-          className="btn-primary mx-auto mt-10 block rounded-2xl px-10 py-4 text-lg font-extrabold"
-        >
-          Play Again
-        </button>
+        <div className="mx-auto mt-10 flex max-w-md flex-col items-center gap-3">
+          <button
+            type="button"
+            onClick={createRoom}
+            className="btn-primary rounded-2xl px-10 py-4 text-lg font-extrabold"
+          >
+            Play Again
+          </button>
+          <Link
+            to={sessionId ? `/history/${sessionId}` : '/history'}
+            className="btn-ghost rounded-2xl px-8 py-3 text-center font-bold"
+          >
+            View detailed report →
+          </Link>
+        </div>
       </div>
     );
   }

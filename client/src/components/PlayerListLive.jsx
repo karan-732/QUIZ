@@ -1,3 +1,5 @@
+import Avatar from './Avatar';
+
 /**
  * Live lobby roster. Virtual-list-free on purpose: even at 200 players the
  * chips are tiny DOM nodes; the flex-wrap grid with a max height + scroll
@@ -35,12 +37,13 @@ export default function PlayerListLive({ players }) {
             <span
               key={p.nickname}
               className={[
-                'animate-pop-in rounded-full px-3.5 py-1.5 text-sm font-semibold ring-1 transition-opacity',
+                'animate-pop-in flex items-center gap-2 rounded-full py-1 pl-1 pr-3.5 text-sm font-semibold ring-1 transition-opacity',
                 p.connected
                   ? 'bg-white/10 text-slate-100 ring-white/15'
-                  : 'bg-white/[0.03] text-slate-500 ring-white/5 line-through',
+                  : 'bg-white/[0.03] text-slate-500 ring-white/5 line-through opacity-60',
               ].join(' ')}
             >
+              <Avatar nickname={p.nickname} size="sm" />
               {p.nickname}
             </span>
           ))}

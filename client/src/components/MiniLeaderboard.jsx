@@ -1,3 +1,5 @@
+import Avatar from './Avatar';
+
 const RANK_STYLES = [
   'bg-amber-400/15 text-amber-300 ring-amber-400/30',
   'bg-slate-300/10 text-slate-300 ring-slate-300/25',
@@ -24,6 +26,7 @@ export default function MiniLeaderboard({ leaderboard, title = 'Leaderboard' }) 
               >
                 {i + 1}
               </span>
+              <Avatar nickname={entry.nickname} size="sm" />
               <span className="max-w-40 truncate">{entry.nickname}</span>
             </span>
             <span className="font-bold tabular-nums text-brand-300">{entry.score}</span>

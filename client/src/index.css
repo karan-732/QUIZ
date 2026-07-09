@@ -31,10 +31,19 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Arena background lives on <body> so it always covers the full viewport
+   edge-to-edge, no matter how narrow the page's content container is.
+   Fixed radial glows, GPU-cheap — no blur filters, so 60 mid-range phones
+   don't melt. */
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background: var(--color-arena-900);
+  background:
+    radial-gradient(52rem 36rem at 85% -10%, rgba(99, 102, 241, 0.22), transparent 60%),
+    radial-gradient(44rem 32rem at -10% 30%, rgba(217, 70, 239, 0.13), transparent 60%),
+    radial-gradient(40rem 30rem at 60% 110%, rgba(56, 189, 248, 0.1), transparent 60%),
+    var(--color-arena-900);
+  background-attachment: fixed;
   color: #e2e8f0;
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
@@ -44,17 +53,9 @@ body {
   min-height: 100svh;
 }
 
-/* ------------------------------------------------------------------ */
-/* Arena background: fixed, GPU-cheap radial glows — no blur filters,  */
-/* so 60 mid-range phones don't melt.                                  */
-/* ------------------------------------------------------------------ */
+/* Legacy alias — the arena background is on <body> now. */
 .bg-arena {
-  background:
-    radial-gradient(52rem 36rem at 85% -10%, rgba(99, 102, 241, 0.22), transparent 60%),
-    radial-gradient(44rem 32rem at -10% 30%, rgba(217, 70, 239, 0.13), transparent 60%),
-    radial-gradient(40rem 30rem at 60% 110%, rgba(56, 189, 248, 0.10), transparent 60%),
-    var(--color-arena-900);
-  background-attachment: fixed;
+  background: transparent;
 }
 
 .glass {

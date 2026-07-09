@@ -1,14 +1,25 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap");
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Outfit", "Inter", system-ui, sans-serif;
 
   --color-brand-50: #eef2ff;
   --color-brand-100: #e0e7ff;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
   --color-brand-500: #6366f1;
   --color-brand-600: #4f46e5;
   --color-brand-700: #4338ca;
+
+  --color-accent-400: #e879f9;
+  --color-accent-500: #d946ef;
+
+  --color-arena-950: #070b18;
+  --color-arena-900: #0b1020;
+  --color-arena-800: #131a30;
+  --color-arena-700: #1d2642;
 
   --color-shape-a: #e21b3c;
   --color-shape-b: #1368ce;
@@ -16,17 +27,89 @@
   --color-shape-d: #26890c;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--color-arena-900);
+  color: #e2e8f0;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #root {
   min-height: 100svh;
 }
 
+/* ------------------------------------------------------------------ */
+/* Arena background: fixed, GPU-cheap radial glows — no blur filters,  */
+/* so 60 mid-range phones don't melt.                                  */
+/* ------------------------------------------------------------------ */
+.bg-arena {
+  background:
+    radial-gradient(52rem 36rem at 85% -10%, rgba(99, 102, 241, 0.22), transparent 60%),
+    radial-gradient(44rem 32rem at -10% 30%, rgba(217, 70, 239, 0.13), transparent 60%),
+    radial-gradient(40rem 30rem at 60% 110%, rgba(56, 189, 248, 0.10), transparent 60%),
+    var(--color-arena-900);
+  background-attachment: fixed;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.text-gradient {
+  background: linear-gradient(100deg, #818cf8 0%, #e879f9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #d946ef 130%);
+  color: #fff;
+  box-shadow: 0 10px 30px -8px rgba(99, 102, 241, 0.65);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 14px 36px -8px rgba(99, 102, 241, 0.75);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-primary:disabled {
+  filter: saturate(0.4) brightness(0.75);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  transition: transform 0.15s ease, background 0.2s ease;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+/* ------------------------------------------------------------------ */
+/* Animations                                                          */
+/* ------------------------------------------------------------------ */
 @keyframes pop-in {
   0% {
     opacity: 0;
@@ -54,5 +137,124 @@ body {
 }
 
 .animate-float-up {
-  animation: float-up 0.5s ease-out both;
+  animation: float-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out both;
+}
+
+@keyframes question-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-question-in {
+  animation: question-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.6;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes bar-grow {
+  from {
+    width: 0%;
+  }
+}
+
+.animate-bar-grow {
+  animation: bar-grow 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes score-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-score-pop {
+  animation: score-pop 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.3s ease-in-out 2;
+}
+
+/* Battery-friendly + vestibular-safe */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Respect notches / home indicators on phones */
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }

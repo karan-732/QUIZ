@@ -9,17 +9,29 @@ export default function ShapeButton({ optionKey, label, disabled, selected, dimm
       type="button"
       disabled={disabled}
       onClick={onClick}
-      style={{ backgroundColor: meta.color }}
+      style={{
+        background: meta.gradient,
+        boxShadow: dimmed ? 'none' : `0 10px 28px -10px ${meta.glow}`,
+      }}
       className={[
-        'flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl px-4 py-6 text-left transition-transform duration-150',
-        'text-white shadow-lg',
-        disabled ? 'cursor-not-allowed' : 'active:scale-95 cursor-pointer',
-        selected ? 'ring-4 ring-white ring-offset-2 ring-offset-slate-900' : '',
-        dimmed ? 'opacity-30' : 'opacity-100',
+        'flex h-full min-h-24 w-full flex-col items-center justify-center gap-2 rounded-2xl px-3 py-5',
+        'select-none text-white transition-[transform,opacity,box-shadow] duration-200 touch-manipulation',
+        disabled ? 'cursor-not-allowed' : 'cursor-pointer active:scale-[0.94]',
+        selected ? 'ring-4 ring-white/90 scale-[1.02]' : 'ring-1 ring-white/15',
+        dimmed ? 'opacity-25 saturate-50' : 'opacity-100',
       ].join(' ')}
     >
-      <ShapeIcon shape={meta.shape} className="h-8 w-8 shrink-0" />
-      {label && <span className="text-sm font-semibold sm:text-base">{label}</span>}
+      <ShapeIcon shape={meta.shape} className="h-8 w-8 shrink-0 drop-shadow sm:h-10 sm:w-10" />
+      {label && (
+        <span
+          className={[
+            'text-center font-bold leading-snug drop-shadow-sm',
+            label.length > 60 ? 'text-xs sm:text-base' : 'text-sm sm:text-lg',
+          ].join(' ')}
+        >
+          {label}
+        </span>
+      )}
     </button>
   );
 }

@@ -3,7 +3,7 @@
  *
  * This is intentionally NOT persisted to Postgres — it's the fast-path
  * cache for an active session (scores, connection status, timers).
- * Supabase only receives durable logs (sessions + individual responses).
+ * Supabase only receives durable logs (sessions + batched responses).
  *
  * Shape:
  *
@@ -11,22 +11,35 @@
  *   gameCode: string
  *   sessionId: string            // FK into game_sessions
  *   hostSocketId: string
+ *   hostToken: string            // secret; lets a refreshed host reclaim the room
  *   hostConnected: boolean
- *   status: 'lobby' | 'question' | 'reveal' | 'leaderboard' | 'ended'
+ *   status: 'lobby' | 'question' | 'reveal' | 'ended'
  *   questions: Question[]        // full rows, including correct_option (server-only)
  *   currentQuestionIndex: number
  *   questionStartedAt: number | null   // ms epoch, set when a question is broadcast
- *   players: Map<nickname, Player>
+ *   questionDeadline: number | null    // ms epoch after which answers are rejected
+ *   questionTimer: Timeout | null      // auto-reveal timer
+ *   allAnsweredTimer: Timeout | null   // short fuse once every player has answered
+ *   hostGraceTimer: Timeout | null     // closes the room if the host never returns
+ *   broadcastTimer: Timeout | null     // coalesces player-list broadcasts
+ *   pendingResponses: object[]         // buffered player_responses rows, flushed per question
+ *   lastRevealStats: object | null     // cached reveal payload for host/player rejoin
+ *   finalLeaderboard: object[] | null
+ *   lastActivityAt: number
+ *   players: Map<lowercased nickname, Player>
  * }
  *
  * Player {
- *   nickname: string
+ *   nickname: string             // original casing, shown in UI
  *   socketId: string | null      // null while disconnected
  *   connected: boolean
  *   score: number
  *   answers: Map<questionIndex, { selectedOption, responseTimeMs, isCorrect, points }>
  * }
  */
+
+export const MAX_PLAYERS_PER_ROOM = 200;
+export const MAX_ACTIVE_ROOMS = 100;
 
 // gameCode -> Room
 const rooms = new Map();
@@ -36,16 +49,28 @@ const rooms = new Map();
 // scanning every room.
 const socketIndex = new Map();
 
-export function createRoom({ gameCode, sessionId, hostSocketId, questions }) {
+const playerKey = (nickname) => nickname.toLowerCase();
+
+export function createRoom({ gameCode, sessionId, hostSocketId, hostToken, questions }) {
   const room = {
     gameCode,
     sessionId,
     hostSocketId,
+    hostToken,
     hostConnected: true,
     status: 'lobby',
     questions,
     currentQuestionIndex: -1,
     questionStartedAt: null,
+    questionDeadline: null,
+    questionTimer: null,
+    allAnsweredTimer: null,
+    hostGraceTimer: null,
+    broadcastTimer: null,
+    pendingResponses: [],
+    lastRevealStats: null,
+    finalLeaderboard: null,
+    lastActivityAt: Date.now(),
     players: new Map(),
   };
 
@@ -59,14 +84,37 @@ export function getRoom(gameCode) {
   return rooms.get(gameCode);
 }
 
+export function getAllRooms() {
+  return rooms.values();
+}
+
 export function roomExists(gameCode) {
   return rooms.has(gameCode);
+}
+
+export function getRoomCount() {
+  return rooms.size;
+}
+
+export function touchRoom(room) {
+  room.lastActivityAt = Date.now();
+}
+
+/** Clears every pending timer a room might be holding. Safe to call twice. */
+export function clearRoomTimers(room) {
+  for (const key of ['questionTimer', 'allAnsweredTimer', 'hostGraceTimer', 'broadcastTimer']) {
+    if (room[key]) {
+      clearTimeout(room[key]);
+      room[key] = null;
+    }
+  }
 }
 
 export function deleteRoom(gameCode) {
   const room = rooms.get(gameCode);
   if (!room) return;
 
+  clearRoomTimers(room);
   socketIndex.delete(room.hostSocketId);
   for (const player of room.players.values()) {
     if (player.socketId) socketIndex.delete(player.socketId);
@@ -74,13 +122,23 @@ export function deleteRoom(gameCode) {
   rooms.delete(gameCode);
 }
 
+export function getPlayer(room, nickname) {
+  return room.players.get(playerKey(nickname));
+}
+
 export function addOrRestorePlayer(room, { nickname, socketId }) {
-  const existing = room.players.get(nickname);
+  const key = playerKey(nickname);
+  const existing = room.players.get(key);
 
   if (existing) {
+    // A stale socket for the same player (e.g. zombie tab) shouldn't keep
+    // an index entry pointing at this player.
+    if (existing.socketId && existing.socketId !== socketId) {
+      socketIndex.delete(existing.socketId);
+    }
     existing.socketId = socketId;
     existing.connected = true;
-    socketIndex.set(socketId, { gameCode: room.gameCode, nickname, role: 'player' });
+    socketIndex.set(socketId, { gameCode: room.gameCode, nickname: existing.nickname, role: 'player' });
     return { player: existing, rejoined: true };
   }
 
@@ -92,7 +150,7 @@ export function addOrRestorePlayer(room, { nickname, socketId }) {
     answers: new Map(),
   };
 
-  room.players.set(nickname, player);
+  room.players.set(key, player);
   socketIndex.set(socketId, { gameCode: room.gameCode, nickname, role: 'player' });
 
   return { player, rejoined: false };
@@ -102,12 +160,16 @@ export function getSocketMeta(socketId) {
   return socketIndex.get(socketId);
 }
 
+export function setSocketMeta(socketId, meta) {
+  socketIndex.set(socketId, meta);
+}
+
 export function removeSocketMeta(socketId) {
   socketIndex.delete(socketId);
 }
 
 export function markPlayerDisconnected(room, nickname) {
-  const player = room.players.get(nickname);
+  const player = getPlayer(room, nickname);
   if (!player) return;
 
   if (player.socketId) socketIndex.delete(player.socketId);
@@ -139,7 +201,7 @@ export function getConnectedPlayerCount(room) {
 }
 
 export function recordAnswer(room, nickname, questionIndex, result) {
-  const player = room.players.get(nickname);
+  const player = getPlayer(room, nickname);
   if (!player) return null;
 
   player.answers.set(questionIndex, result);
@@ -148,7 +210,7 @@ export function recordAnswer(room, nickname, questionIndex, result) {
 }
 
 export function hasAnswered(room, nickname, questionIndex) {
-  const player = room.players.get(nickname);
+  const player = getPlayer(room, nickname);
   return Boolean(player?.answers.get(questionIndex));
 }
 
@@ -181,9 +243,11 @@ export function getAnswerStats(room, questionIndex) {
 
 /**
  * Strips the correct answer before this question ever reaches the network —
- * both host and player clients get the same shape.
+ * both host and player clients get the same shape. `timeRemainingMs` lets a
+ * mid-question (re)joiner start their local countdown at the right point.
  */
-export function toPublicQuestion(question, index, total) {
+export function toPublicQuestion(question, index, total, timeRemainingMs = null) {
+  const totalMs = question.time_limit_seconds * 1000;
   return {
     index,
     total,
@@ -196,5 +260,6 @@ export function toPublicQuestion(question, index, total) {
       D: question.option_d,
     },
     timeLimitSeconds: question.time_limit_seconds,
+    timeRemainingMs: timeRemainingMs ?? totalMs,
   };
 }

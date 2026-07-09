@@ -1,24 +1,37 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 export default function JoinPage() {
   const { code } = useParams();
   const navigate = useNavigate();
   const [gameCode, setGameCode] = useState(code || '');
-  const [nickname, setNickname] = useState('');
+  const [nickname, setNickname] = useState(sessionStorage.getItem('quiz.nickname') || '');
   const [error, setError] = useState(new URLSearchParams(window.location.search).get('error') || '');
+  const [shake, setShake] = useState(false);
+  const codeInputRef = useRef(null);
+  const nameInputRef = useRef(null);
+
+  useEffect(() => {
+    // Land the cursor where the user actually needs to type next.
+    if (code && /^\d{4}$/.test(code)) nameInputRef.current?.focus();
+    else codeInputRef.current?.focus();
+  }, [code]);
+
+  const fail = (message) => {
+    setError(message);
+    setShake(true);
+    setTimeout(() => setShake(false), 600);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
 
     if (!/^\d{4}$/.test(gameCode)) {
-      setError('Enter the 4-digit game code.');
-      return;
+      return fail('Enter the 4-digit game code.');
     }
     if (!nickname.trim()) {
-      setError('Enter a nickname.');
-      return;
+      return fail('Enter a nickname.');
     }
 
     sessionStorage.setItem('quiz.gameCode', gameCode);
@@ -27,37 +40,58 @@ export default function JoinPage() {
   };
 
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center bg-gradient-to-b from-brand-50 to-white px-6">
+    <div className="bg-arena flex min-h-svh flex-col items-center justify-center px-5 py-8 safe-bottom">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-lg ring-1 ring-slate-200"
+        className={[
+          'glass animate-float-up w-full max-w-sm rounded-3xl p-7 backdrop-blur-sm',
+          shake ? 'animate-shake' : '',
+        ].join(' ')}
       >
-        <h1 className="mb-6 text-center text-2xl font-extrabold text-slate-900">Join Quiz</h1>
+        <h1
+          className="mb-1 text-center text-3xl font-extrabold text-white"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
+          Join the game
+        </h1>
+        <p className="mb-7 text-center text-sm text-slate-400">
+          Ask the host for the 4-digit code
+        </p>
 
-        <label className="mb-1 block text-sm font-medium text-slate-600">Game Code</label>
+        <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-slate-400">
+          Game Code
+        </label>
         <input
+          ref={codeInputRef}
           value={gameCode}
           onChange={(e) => setGameCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
           inputMode="numeric"
-          placeholder="0000"
-          className="mb-4 w-full rounded-xl border border-slate-200 px-4 py-3 text-center text-2xl font-bold tracking-[0.3em] text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          autoComplete="one-time-code"
+          placeholder="••••"
+          className="mb-5 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center text-3xl font-extrabold tracking-[0.45em] text-white outline-none transition placeholder:text-slate-600 focus:border-brand-400 focus:bg-white/[0.08] focus:ring-4 focus:ring-brand-500/20"
         />
 
-        <label className="mb-1 block text-sm font-medium text-slate-600">Nickname</label>
+        <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-slate-400">
+          Nickname
+        </label>
         <input
+          ref={nameInputRef}
           value={nickname}
           onChange={(e) => setNickname(e.target.value.slice(0, 20))}
           placeholder="Your name"
-          className="mb-4 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          maxLength={20}
+          autoComplete="off"
+          className="mb-5 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-lg font-semibold text-white outline-none transition placeholder:text-slate-600 focus:border-brand-400 focus:bg-white/[0.08] focus:ring-4 focus:ring-brand-500/20"
         />
 
-        {error && <p className="mb-4 text-sm font-medium text-red-500">{error}</p>}
+        {error && (
+          <p className="animate-fade-in mb-5 rounded-xl bg-red-500/10 px-3 py-2 text-center text-sm font-semibold text-red-400 ring-1 ring-red-500/25">
+            {error}
+          </p>
+        )}
 
-        <button
-          type="submit"
-          className="w-full rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white shadow-md shadow-brand-600/20 transition hover:bg-brand-700"
-        >
-          Join
+        <button type="submit" className="btn-primary w-full rounded-2xl px-4 py-4 text-lg font-bold">
+          Let's go
         </button>
       </form>
     </div>

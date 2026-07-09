@@ -11,6 +11,13 @@ const SERVER_URL =
 export const socket = io(SERVER_URL, {
   autoConnect: false,
   transports: ['websocket', 'polling'],
+  // Phones drop Wi-Fi constantly during a live game — retry forever with a
+  // quick first attempt and modest backoff so rejoins feel instant.
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 400,
+  reconnectionDelayMax: 4000,
+  timeout: 10_000,
 });
 
 export function ensureConnected() {

@@ -100,7 +100,7 @@ values
     'C', 20, 4
   ),
   (
-    'In the opening case studies, Interos used AI to map supply chain risks "five layers deep," predicting an upstream factory shutdown days before the primary supplier even reported it. How did the AI actually figure this out without any direct access to those sub-vendors?',
+    'For example, a company used AI to map supply chain risks "five layers deep," predicting an upstream factory shutdown days before the primary supplier even reported it. How did the AI actually figure this out without any direct access to those sub-vendors?',
     'It analyzed the primary supplier''s historical shipping data to spot seasonal patterns in past delivery delays.',
     'It required all sub-suppliers to fill out automated risk-compliance forms to update their operational status.',
     'It continuously scanned millions of messy public data points—like local foreign news, weather alerts, and customs filings—to connect the dots between hidden vendors.',

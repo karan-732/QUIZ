@@ -14,7 +14,7 @@ create table if not exists questions (
   option_c text not null,
   option_d text not null,
   correct_option char(1) not null check (correct_option in ('A', 'B', 'C', 'D')),
-  time_limit_seconds integer not null default 20 check (time_limit_seconds > 0),
+  time_limit_seconds integer not null default 30 check (time_limit_seconds > 0),
   display_order integer not null default 0,
   created_at timestamptz not null default now()
 );

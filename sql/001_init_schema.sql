@@ -14,7 +14,7 @@ create table if not exists questions (
   option_c text not null,
   option_d text not null,
   correct_option char(1) not null check (correct_option in ('A', 'B', 'C', 'D')),
-  time_limit_seconds integer not null default 20 check (time_limit_seconds > 0),
+  time_limit_seconds integer not null default 30 check (time_limit_seconds > 0),
   display_order integer not null default 0,
   created_at timestamptz not null default now()
 );
@@ -68,42 +68,42 @@ insert into questions
   (question_text, option_a, option_b, option_c, option_d, correct_option, time_limit_seconds, display_order)
 values
   (
-    'An AI Intern keeps giving wrong answers about return policy exceptions. What''s most likely missing?',
-    'It needs a better system prompt with a friendlier tone',
-    'It needs to be single-purpose instead of multi-purpose',
-    'Its knowledge base doesn''t actually contain the exceptions document — it''s guessing',
-    'It needs to be moved from Chat to Co-work',
-    'C', 20, 1
+    'An AI Intern keeps getting return policy exceptions wrong. What is most likely missing?',
+    'A better system prompt with a friendlier tone',
+    'It should be single-purpose, not multi-purpose',
+    'The exceptions document is not in its knowledge base, so it guesses',
+    'It needs to move from Chat to Co-work',
+    'C', 30, 1
   ),
   (
-    'You''re building an AI assistant for your HR team that will screen resumes using the same rubric every day. Where should you build it?',
-    'A normal chat, because Claude remembers your last few messages anyway.',
-    'A Project, because it needs persistent instructions, knowledge files, and repeated use.',
-    'Start a new chat every morning and paste the SOP manually.',
-    'One shared chat link that everyone continues using forever.',
-    'B', 20, 2
+    'Your HR team will screen resumes with the same rubric every day. Where should you build the assistant?',
+    'A normal chat, since Claude remembers recent messages',
+    'A Project, with persistent instructions and knowledge files',
+    'A new chat every morning, pasting the SOP manually',
+    'One shared chat link everyone reuses forever',
+    'B', 30, 2
   ),
   (
-    'You want to use Claude to build a highly disruptive 5-year growth strategy for your specific business. You have 15 minutes. What is statistically the most effective thing to get a hyper-customized, elite output?',
-    'Paste a 50-page generic industry report and ask it to adapt it to your company.',
-    'Write a 3-page detailed backstory of your company''s history and ask for a plan.',
-    'Use CRAFT prompt detailing your role, goals, and target format.',
-    '"Act as an elite McKinsey partner. Interview me one question at a time to extract the context in my head, then build the strategy."',
-    'D', 20, 3
+    'You have 15 minutes to get Claude to build an elite, customized 5-year growth strategy. What works best?',
+    'Paste a 50-page industry report and ask it to adapt it',
+    'Write a 3-page company backstory and ask for a plan',
+    'Use a CRAFT prompt with your role, goals, and format',
+    'Ask it to act as a McKinsey partner and interview you one question at a time, then build the strategy',
+    'D', 30, 3
   ),
   (
-    'You accidentally paste a sensitive, unredacted vendor agreement into a free Claude or ChatGPT window to summarize it. Realizing your mistake, you immediately click "Delete Chat" 10 seconds later. What actually happens to that company data?',
-    'It is instantly wiped from the AI company''s backend servers permanently.',
-    'It is encrypted and locked, readable only if a government agency requests it.',
-    'It remains stored in their backend logs for up to 30 days and can be used to train future models unless you explicitly toggled off data sharing in your settings first.',
-    'The AI system automatically flags it as a contract and self-destructs the data block.',
-    'C', 20, 4
+    'You paste a sensitive vendor agreement into a free AI chat, then delete the chat 10 seconds later. What happens to the data?',
+    'It is instantly wiped from the backend servers',
+    'It is encrypted and only readable by government request',
+    'It stays in backend logs up to 30 days and may train future models unless you opted out',
+    'The AI flags it as a contract and self-destructs the data',
+    'C', 30, 4
   ),
   (
-    'For example, a company used AI to map supply chain risks "five layers deep," predicting an upstream factory shutdown days before the primary supplier even reported it. How did the AI actually figure this out without any direct access to those sub-vendors?',
-    'It analyzed the primary supplier''s historical shipping data to spot seasonal patterns in past delivery delays.',
-    'It required all sub-suppliers to fill out automated risk-compliance forms to update their operational status.',
-    'It continuously scanned millions of messy public data points—like local foreign news, weather alerts, and customs filings—to connect the dots between hidden vendors.',
-    'It integrated directly into the supplier''s internal inventory software to monitor raw material levels in real-time.',
-    'C', 20, 5
+    'A company used AI to map supply chain risks five layers deep and predicted a factory shutdown before its supplier even reported it. How?',
+    'It analyzed the supplier''s historical shipping data for patterns',
+    'It made all sub-suppliers fill out risk compliance forms',
+    'It scanned millions of public data points like local news, weather alerts, and customs filings',
+    'It plugged into the supplier''s inventory software in real time',
+    'C', 30, 5
   );

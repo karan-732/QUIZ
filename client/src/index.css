@@ -53,6 +53,32 @@ body {
   min-height: 100svh;
 }
 
+::selection {
+  background: rgba(99, 102, 241, 0.45);
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
 /* Legacy alias — the arena background is on <body> now. */
 .bg-arena {
   background: transparent;
@@ -80,7 +106,8 @@ body {
 
 .btn-primary:hover {
   filter: brightness(1.08);
-  box-shadow: 0 14px 36px -8px rgba(99, 102, 241, 0.75);
+  transform: translateY(-1px);
+  box-shadow: 0 16px 38px -8px rgba(99, 102, 241, 0.8);
 }
 
 .btn-primary:active {

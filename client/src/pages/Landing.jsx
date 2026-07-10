@@ -74,9 +74,22 @@ export default function Landing() {
         </button>
       </div>
 
-      <p className="relative text-xs font-medium text-slate-600">
-        Grab your phone, enter the code, and play with everyone.
-      </p>
+      <div
+        className="animate-float-up relative flex flex-wrap items-center justify-center gap-x-2 gap-y-2 px-4 text-xs font-semibold text-slate-400"
+        style={{ animationDelay: '280ms' }}
+      >
+        <span className="rounded-full bg-white/5 px-3.5 py-1.5 ring-1 ring-white/10">
+          📺 Host puts the code on screen
+        </span>
+        <span className="text-slate-600">→</span>
+        <span className="rounded-full bg-white/5 px-3.5 py-1.5 ring-1 ring-white/10">
+          📱 Players scan or type it in
+        </span>
+        <span className="text-slate-600">→</span>
+        <span className="rounded-full bg-white/5 px-3.5 py-1.5 ring-1 ring-white/10">
+          ⚡ Answer fast, score big
+        </span>
+      </div>
     </div>
   );
 }

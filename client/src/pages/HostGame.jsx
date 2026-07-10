@@ -27,6 +27,7 @@ export default function HostGame() {
   const [finalLeaderboard, setFinalLeaderboard] = useState(null);
   const [error, setError] = useState('');
   const [advancing, setAdvancing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const playersRef = useRef([]);
   playersRef.current = players;
 
@@ -184,6 +185,16 @@ export default function HostGame() {
   const joinUrl = gameCode ? `${window.location.origin}/join/${gameCode}` : '';
   const connectedCount = players.filter((p) => p.connected).length;
 
+  const copyJoinLink = async () => {
+    try {
+      await navigator.clipboard.writeText(joinUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable (non-HTTPS / old browser) — the QR still works.
+    }
+  };
+
   if (phase === 'creating') {
     return (
       <>
@@ -222,12 +233,26 @@ export default function HostGame() {
             >
               {gameCode}
             </h1>
-            <Link
-              to="/history"
-              className="mt-2 inline-block text-sm font-semibold text-slate-500 underline-offset-4 transition hover:text-brand-300 hover:underline"
-            >
-              View past games →
-            </Link>
+            <div className="mt-3 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={copyJoinLink}
+                className={[
+                  'rounded-full px-4 py-1.5 text-sm font-semibold ring-1 transition',
+                  copied
+                    ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/30'
+                    : 'bg-white/5 text-slate-300 ring-white/10 hover:bg-white/10 hover:text-white',
+                ].join(' ')}
+              >
+                {copied ? '✓ Link copied' : '🔗 Copy join link'}
+              </button>
+              <Link
+                to="/history"
+                className="text-sm font-semibold text-slate-500 underline-offset-4 transition hover:text-brand-300 hover:underline"
+              >
+                Past games →
+              </Link>
+            </div>
           </header>
 
           <div className="animate-float-up grid gap-5 sm:grid-cols-[auto_1fr]" style={{ animationDelay: '120ms' }}>
@@ -359,6 +384,7 @@ export default function HostGame() {
               const count = revealData.optionCounts[key] || 0;
               const pct = Math.round((count / total) * 100);
               const isCorrect = key === revealData.correctOption;
+              const optionText = question?.options?.[key];
               return (
                 <div key={key} className="flex items-center gap-3">
                   <div
@@ -367,21 +393,40 @@ export default function HostGame() {
                   >
                     <ShapeIcon shape={meta.shape} className="h-5 w-5" />
                   </div>
-                  <div className="h-9 flex-1 overflow-hidden rounded-full bg-white/5">
-                    <div
-                      className={[
-                        'animate-bar-grow h-full rounded-full',
-                        isCorrect
-                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.4)]'
-                          : 'bg-white/15',
-                      ].join(' ')}
-                      style={{ width: `${Math.max(pct, count > 0 ? 6 : 0)}%` }}
-                    />
+                  <div className="min-w-0 flex-1">
+                    {optionText && (
+                      <div className="mb-1 flex items-baseline justify-between gap-3">
+                        <span
+                          className={[
+                            'truncate text-sm font-semibold',
+                            isCorrect ? 'text-white' : 'text-slate-400',
+                          ].join(' ')}
+                        >
+                          {optionText}
+                        </span>
+                        <span className="shrink-0 text-xs font-bold tabular-nums text-slate-500">
+                          {pct}%
+                        </span>
+                      </div>
+                    )}
+                    <div className="h-4 overflow-hidden rounded-full bg-white/5">
+                      <div
+                        className={[
+                          'animate-bar-grow h-full rounded-full',
+                          isCorrect
+                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.4)]'
+                            : 'bg-white/15',
+                        ].join(' ')}
+                        style={{ width: `${Math.max(pct, count > 0 ? 6 : 0)}%` }}
+                      />
+                    </div>
                   </div>
-                  <span className="w-10 text-right font-bold tabular-nums text-slate-300">
+                  <span className="w-8 shrink-0 text-right font-bold tabular-nums text-slate-300">
                     {count}
                   </span>
-                  <span className={`w-5 text-lg ${isCorrect ? 'text-emerald-400' : 'text-transparent'}`}>
+                  <span
+                    className={`w-5 shrink-0 text-lg ${isCorrect ? 'text-emerald-400' : 'text-transparent'}`}
+                  >
                     ✓
                   </span>
                 </div>

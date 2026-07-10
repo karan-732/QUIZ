@@ -302,9 +302,11 @@ export default function PlayerGame() {
             onExpire={handleTimeUp}
           />
 
-          <p className="animate-question-in text-center text-lg font-bold leading-snug text-white sm:text-xl">
-            {question.questionText}
-          </p>
+          <div className="glass animate-question-in rounded-2xl px-4 py-3">
+            <p className="text-center text-lg font-bold leading-snug text-white sm:text-xl">
+              {question.questionText}
+            </p>
+          </div>
 
           <div className="grid flex-1 grid-cols-2 gap-3 pb-2">
             {OPTION_KEYS.map((key) => (
@@ -370,6 +372,18 @@ export default function PlayerGame() {
                 Time's up!
               </p>
             </>
+          )}
+
+          {lastResult && !gotItRight && selected && question?.options?.[selected] && (
+            <p className="animate-fade-in flex items-center gap-2 text-sm font-semibold text-slate-400">
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-lg text-white opacity-70"
+                style={{ background: SHAPE_META[selected].gradient }}
+              >
+                <ShapeIcon shape={SHAPE_META[selected].shape} className="h-3 w-3" />
+              </span>
+              You picked: {question.options[selected]}
+            </p>
           )}
 
           {correctMeta && question?.options?.[correctKey] && (

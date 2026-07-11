@@ -52,16 +52,18 @@ export default function HostAdmin() {
     };
   }, [navigate]);
 
-  const handleSaveQuestion = (index, draft, done) => {
-    socket.emit('update-question', { index, ...draft }, (res) => {
+  // Questions are targeted by id (not list position) so a request can never
+  // hit the wrong question even if the list shifts mid-flight.
+  const handleSaveQuestion = (id, draft, done) => {
+    socket.emit('update-question', { id, ...draft }, (res) => {
       if (res.ok) {
-        setQuestions((prev) => prev.map((q, i) => (i === index ? res.question : q)));
+        setQuestions((prev) => prev.map((q) => (q.id === id ? res.question : q)));
       }
       done(res);
     });
   };
 
-  // add/remove/set-all acks carry the full refreshed list so client indexes
+  // add/remove/set-all acks carry the full refreshed list so the client
   // can never drift from the server's.
   const handleAddQuestion = (draft, done) => {
     socket.emit('add-question', draft, (res) => {
@@ -70,8 +72,8 @@ export default function HostAdmin() {
     });
   };
 
-  const handleRemoveQuestion = (index, done) => {
-    socket.emit('remove-question', { index }, (res) => {
+  const handleRemoveQuestion = (id, done) => {
+    socket.emit('remove-question', { id }, (res) => {
       if (res.ok) setQuestions(res.questions);
       done(res);
     });

@@ -201,7 +201,7 @@ function QuestionRow({ question, index, open, canRemove, onToggle, onSave, onRem
   const handleSave = () => {
     setSaving(true);
     setFeedback(null);
-    onSave(index, draft, (res) => {
+    onSave(question.id, draft, (res) => {
       setSaving(false);
       if (res.ok) {
         setFeedback({ ok: true, message: 'Saved' });
@@ -219,7 +219,7 @@ function QuestionRow({ question, index, open, canRemove, onToggle, onSave, onRem
     }
     setSaving(true);
     setFeedback(null);
-    onRemove(index, (res) => {
+    onRemove(question.id, (res) => {
       setSaving(false);
       if (!res.ok) {
         setConfirmingRemove(false);

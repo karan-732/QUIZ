@@ -118,6 +118,22 @@ function validateQuestionFields(payload) {
   return { questionText, options: cleaned, correctOption, timeLimitSeconds };
 }
 
+/**
+ * Resolves the target of an edit/remove request. Prefers the question id
+ * (immune to the list shifting under concurrent edits); falls back to the
+ * numeric index for older payloads. Returns null when nothing matches.
+ */
+function findQuestion(room, payload) {
+  if (payload?.id != null) {
+    return room.questions.find((q) => q.id === String(payload.id)) ?? null;
+  }
+  const index = Number(payload?.index);
+  if (!Number.isInteger(index) || index < 0 || index >= room.questions.length) {
+    return null;
+  }
+  return room.questions[index];
+}
+
 function requireHost(socket, callback) {
   const ack = typeof callback === 'function' ? callback : () => {};
   const meta = getSocketMeta(socket.id);
@@ -427,8 +443,10 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
       }
 
-      const index = Number(payload?.index);
-      if (!Number.isInteger(index) || index < 0 || index >= room.questions.length) {
+      // Prefer id over index — an index can go stale the moment the list
+      // shifts, an id cannot point at the wrong question.
+      const question = findQuestion(room, payload);
+      if (!question) {
         return ack({ ok: false, error: 'Invalid question index.' });
       }
 
@@ -436,8 +454,6 @@ export function registerGameSocket(io) {
       if (fields.error) {
         return ack({ ok: false, error: fields.error });
       }
-
-      const question = room.questions[index];
       const { error } = await supabase
         .from('questions')
         .update({
@@ -465,7 +481,7 @@ export function registerGameSocket(io) {
       question.time_limit_seconds = fields.timeLimitSeconds;
       touchRoom(room);
 
-      ack({ ok: true, question: toHostQuestion(question, index) });
+      ack({ ok: true, question: toHostQuestion(question, room.questions.indexOf(question)) });
     });
 
     // -----------------------------------------------------------------
@@ -542,8 +558,8 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
       }
 
-      const index = Number(payload?.index);
-      if (!Number.isInteger(index) || index < 0 || index >= room.questions.length) {
+      const question = findQuestion(room, payload);
+      if (!question) {
         return ack({ ok: false, error: 'Invalid question index.' });
       }
 
@@ -551,11 +567,18 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'A game needs at least one question.' });
       }
 
-      const question = room.questions[index];
-      const { error } = await supabase
+      let { error } = await supabase
         .from('questions')
         .update({ is_active: false })
         .eq('id', question.id);
+
+      // Before the is_active migration is applied the soft delete fails —
+      // fall back to a hard delete. The player_responses FK (restrict) makes
+      // Postgres refuse to hard-delete any question with game history, so
+      // this can never lose analytics data.
+      if (error) {
+        ({ error } = await supabase.from('questions').delete().eq('id', question.id));
+      }
 
       if (error) {
         console.error('[remove-question] failed to remove:', error.message);

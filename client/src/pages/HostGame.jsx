@@ -4,7 +4,6 @@ import { ensureConnected, socket } from '../lib/socket';
 import { OPTION_KEYS, SHAPE_META } from '../lib/shapes';
 import QRCodeCard from '../components/QRCodeCard';
 import PlayerListLive from '../components/PlayerListLive';
-import QuestionEditor from '../components/QuestionEditor';
 import ShapeIcon from '../components/ShapeIcon';
 import Timer from '../components/Timer';
 import MiniLeaderboard from '../components/MiniLeaderboard';
@@ -20,7 +19,6 @@ export default function HostGame() {
   const [gameCode, setGameCode] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [players, setPlayers] = useState([]);
-  const [questions, setQuestions] = useState([]);
   const [question, setQuestion] = useState(null);
   const [answerProgress, setAnswerProgress] = useState({ answered: 0, total: 0 });
   const [revealData, setRevealData] = useState(null);
@@ -34,7 +32,6 @@ export default function HostGame() {
   const createRoom = () => {
     setPhase('creating');
     setPlayers([]);
-    setQuestions([]);
     setQuestion(null);
     setRevealData(null);
     setFinalLeaderboard(null);
@@ -51,7 +48,6 @@ export default function HostGame() {
       );
       setGameCode(res.gameCode);
       setSessionId(res.sessionId);
-      setQuestions(res.questions ?? []);
       setPhase('lobby');
     });
   };
@@ -63,7 +59,6 @@ export default function HostGame() {
       setGameCode(res.gameCode);
       setSessionId(res.sessionId ?? null);
       setPlayers(res.players ?? []);
-      if (res.questions) setQuestions(res.questions);
       setError('');
 
       if (res.status === 'lobby') {
@@ -173,15 +168,6 @@ export default function HostGame() {
     });
   };
 
-  const handleSaveQuestion = (index, draft, done) => {
-    socket.emit('update-question', { index, ...draft }, (res) => {
-      if (res.ok) {
-        setQuestions((prev) => prev.map((q, i) => (i === index ? res.question : q)));
-      }
-      done(res);
-    });
-  };
-
   const joinUrl = gameCode ? `${window.location.origin}/join/${gameCode}` : '';
   const connectedCount = players.filter((p) => p.connected).length;
 
@@ -247,6 +233,12 @@ export default function HostGame() {
                 {copied ? '✓ Link copied' : '🔗 Copy join link'}
               </button>
               <Link
+                to="/host/admin"
+                className="rounded-full bg-white/5 px-4 py-1.5 text-sm font-semibold text-slate-300 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white"
+              >
+                ⚙️ Admin
+              </Link>
+              <Link
                 to="/history"
                 className="text-sm font-semibold text-slate-500 underline-offset-4 transition hover:text-brand-300 hover:underline"
               >
@@ -259,12 +251,6 @@ export default function HostGame() {
             <QRCodeCard joinUrl={joinUrl} />
             <PlayerListLive players={players} />
           </div>
-
-          {questions.length > 0 && (
-            <div className="animate-float-up" style={{ animationDelay: '200ms' }}>
-              <QuestionEditor questions={questions} onSave={handleSaveQuestion} />
-            </div>
-          )}
 
           {error && (
             <p className="animate-fade-in text-center font-semibold text-red-400">{error}</p>

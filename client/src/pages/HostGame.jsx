@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ensureConnected, socket } from '../lib/socket';
+import { getStored, removeStored, setStored } from '../lib/storage';
 import { OPTION_KEYS, SHAPE_META } from '../lib/shapes';
 import QRCodeCard from '../components/QRCodeCard';
 import PlayerListLive from '../components/PlayerListLive';
@@ -42,7 +43,7 @@ export default function HostGame() {
         setPhase('error');
         return;
       }
-      sessionStorage.setItem(
+      setStored(
         HOST_SESSION_KEY,
         JSON.stringify({ gameCode: res.gameCode, hostToken: res.hostToken })
       );
@@ -85,7 +86,7 @@ export default function HostGame() {
     // Runs on first connect AND on every reconnect: reclaim the room we
     // were hosting if we have a token, otherwise start a fresh one.
     const boot = () => {
-      const saved = JSON.parse(sessionStorage.getItem(HOST_SESSION_KEY) || 'null');
+      const saved = JSON.parse(getStored(HOST_SESSION_KEY) || 'null');
       if (!saved) {
         createRoom();
         return;
@@ -94,7 +95,7 @@ export default function HostGame() {
         if (res.ok) {
           applySnapshot(res);
         } else {
-          sessionStorage.removeItem(HOST_SESSION_KEY);
+          removeStored(HOST_SESSION_KEY);
           createRoom();
         }
       });
@@ -123,7 +124,7 @@ export default function HostGame() {
       setPhase('ended');
     };
     const onRoomClosed = () => {
-      sessionStorage.removeItem(HOST_SESSION_KEY);
+      removeStored(HOST_SESSION_KEY);
       setError('The room was closed due to inactivity.');
       setPhase('error');
     };

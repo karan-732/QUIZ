@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Avatar from '../components/Avatar';
+import { getStored, setStored } from '../lib/storage';
 
 export default function JoinPage() {
   const { code } = useParams();
   const navigate = useNavigate();
   const [gameCode, setGameCode] = useState(code || '');
-  const [nickname, setNickname] = useState(sessionStorage.getItem('quiz.nickname') || '');
+  const [nickname, setNickname] = useState(getStored('quiz.nickname') || '');
   const [error, setError] = useState(new URLSearchParams(window.location.search).get('error') || '');
   const [shake, setShake] = useState(false);
   const codeInputRef = useRef(null);
@@ -35,13 +36,13 @@ export default function JoinPage() {
       return fail('Enter a nickname.');
     }
 
-    // Stable per-tab identity: lets the server recognize this player across
-    // refreshes/reconnects even if someone else took the same nickname.
-    if (!sessionStorage.getItem('quiz.playerToken')) {
-      sessionStorage.setItem('quiz.playerToken', crypto.randomUUID());
+    // Stable per-device identity: lets the server recognize this player
+    // across refreshes, reconnects, and even a full browser close.
+    if (!getStored('quiz.playerToken')) {
+      setStored('quiz.playerToken', crypto.randomUUID());
     }
-    sessionStorage.setItem('quiz.gameCode', gameCode);
-    sessionStorage.setItem('quiz.nickname', nickname.trim());
+    setStored('quiz.gameCode', gameCode);
+    setStored('quiz.nickname', nickname.trim());
     navigate('/play');
   };
 

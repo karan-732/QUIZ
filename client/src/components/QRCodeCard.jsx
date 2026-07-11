@@ -9,13 +9,13 @@ export default function QRCodeCard({ joinUrl }) {
       <div className="rounded-2xl bg-white p-3">
         <QRCodeSVG
           value={joinUrl}
-          size={176}
+          size={236}
           level="M"
           shapeRendering="crispEdges"
           style={{ display: 'block' }}
         />
       </div>
-      <p className="max-w-52 break-all text-center text-xs font-medium text-slate-400">{joinUrl}</p>
+      <p className="max-w-64 break-all text-center text-xs font-medium text-slate-400">{joinUrl}</p>
     </div>
   );
 }

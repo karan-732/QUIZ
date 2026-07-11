@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ensureConnected, socket } from '../lib/socket';
+import { getStored, removeStored } from '../lib/storage';
 import QuestionEditor from '../components/QuestionEditor';
 import CenteredMessage from '../components/CenteredMessage';
 import ConnectionBanner from '../components/ConnectionBanner';
@@ -21,14 +22,14 @@ export default function HostAdmin() {
 
   useEffect(() => {
     const boot = () => {
-      const saved = JSON.parse(sessionStorage.getItem(HOST_SESSION_KEY) || 'null');
+      const saved = JSON.parse(getStored(HOST_SESSION_KEY) || 'null');
       if (!saved) {
         navigate('/host', { replace: true });
         return;
       }
       socket.emit('reclaim-host', saved, (res) => {
         if (!res.ok) {
-          sessionStorage.removeItem(HOST_SESSION_KEY);
+          removeStored(HOST_SESSION_KEY);
           navigate('/host', { replace: true });
           return;
         }

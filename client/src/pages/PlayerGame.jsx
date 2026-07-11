@@ -9,6 +9,7 @@ import Timer from '../components/Timer';
 import FinalLeaderboard from '../components/FinalLeaderboard';
 import CenteredMessage from '../components/CenteredMessage';
 import ConnectionBanner from '../components/ConnectionBanner';
+import { getStored, setStored } from '../lib/storage';
 
 export default function PlayerGame() {
   const navigate = useNavigate();
@@ -29,12 +30,12 @@ export default function PlayerGame() {
   phaseRef.current = phase;
 
   useEffect(() => {
-    const gameCode = sessionStorage.getItem('quiz.gameCode');
-    const requestedNickname = sessionStorage.getItem('quiz.nickname');
-    let playerToken = sessionStorage.getItem('quiz.playerToken');
+    const gameCode = getStored('quiz.gameCode');
+    const requestedNickname = getStored('quiz.nickname');
+    let playerToken = getStored('quiz.playerToken');
     if (!playerToken) {
       playerToken = crypto.randomUUID();
-      sessionStorage.setItem('quiz.playerToken', playerToken);
+      setStored('quiz.playerToken', playerToken);
     }
 
     if (!gameCode || !requestedNickname) {
@@ -55,8 +56,8 @@ export default function PlayerGame() {
 
         // The server may have adjusted the name ("Karan" -> "Karan 2") and
         // is the authority on our identity — persist both for next refresh.
-        sessionStorage.setItem('quiz.nickname', res.nickname);
-        sessionStorage.setItem('quiz.playerToken', res.playerToken);
+        setStored('quiz.nickname', res.nickname);
+        setStored('quiz.playerToken', res.playerToken);
         setNickname(res.nickname);
         setRenamedFrom(res.renamed ? requestedNickname : null);
 

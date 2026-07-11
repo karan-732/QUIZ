@@ -32,7 +32,7 @@ import {
   toHostQuestion,
 } from '../state/roomStore.js';
 
-const QUESTION_COUNT = 5;
+const MAX_QUESTIONS = 50;
 const FINAL_LEADERBOARD_SIZE = 10;
 
 // Bounds for host question edits.
@@ -74,6 +74,48 @@ function isRateLimited(socketId, limit = 20, windowMs = 5000) {
 
   bucket.count += 1;
   return bucket.count > limit;
+}
+
+function parseTimeLimit(value) {
+  const seconds = Math.round(Number(value));
+  if (!Number.isFinite(seconds) || seconds < MIN_TIME_LIMIT_S || seconds > MAX_TIME_LIMIT_S) {
+    return null;
+  }
+  return seconds;
+}
+
+/**
+ * Validates a full question payload (shared by update-question and
+ * add-question). Returns { error } or the cleaned fields.
+ */
+function validateQuestionFields(payload) {
+  const questionText = String(payload?.questionText ?? '').trim().slice(0, MAX_QUESTION_LENGTH);
+  if (!questionText) {
+    return { error: 'Question text cannot be empty.' };
+  }
+
+  const options = payload?.options ?? {};
+  const cleaned = {};
+  for (const key of ['A', 'B', 'C', 'D']) {
+    cleaned[key] = String(options[key] ?? '').trim().slice(0, MAX_OPTION_LENGTH);
+    if (!cleaned[key]) {
+      return { error: `Option ${key} cannot be empty.` };
+    }
+  }
+
+  const correctOption = String(payload?.correctOption ?? '').toUpperCase();
+  if (!['A', 'B', 'C', 'D'].includes(correctOption)) {
+    return { error: 'Correct option must be A, B, C, or D.' };
+  }
+
+  const timeLimitSeconds = parseTimeLimit(payload?.timeLimitSeconds);
+  if (timeLimitSeconds === null) {
+    return {
+      error: `Time limit must be between ${MIN_TIME_LIMIT_S} and ${MAX_TIME_LIMIT_S} seconds.`,
+    };
+  }
+
+  return { questionText, options: cleaned, correctOption, timeLimitSeconds };
 }
 
 function requireHost(socket, callback) {
@@ -292,7 +334,7 @@ export function registerGameSocket(io) {
   io.on('connection', (socket) => {
     // -----------------------------------------------------------------
     // HOST: create-room
-    // Pulls the 5 fixed default questions from Supabase, opens a
+    // Pulls the active question bank from Supabase, opens a
     // game_sessions row, and stands up the in-memory room. The ack
     // includes the full questions (with answers) so the host can review
     // and edit them in the lobby before starting.
@@ -318,14 +360,20 @@ export function registerGameSocket(io) {
       }
 
       try {
-        const { data: questions, error: questionsError } = await supabase
+        const { data: questionRows, error: questionsError } = await supabase
           .from('questions')
           .select('*')
-          .order('display_order', { ascending: true })
-          .limit(QUESTION_COUNT);
+          .order('display_order', { ascending: true });
 
         if (questionsError) throw questionsError;
-        if (!questions || questions.length === 0) {
+
+        // Soft-deleted questions are filtered here (not in the query) so the
+        // app keeps working even before the is_active migration is applied.
+        const questions = (questionRows ?? [])
+          .filter((q) => q.is_active !== false)
+          .slice(0, MAX_QUESTIONS);
+
+        if (questions.length === 0) {
           return ack({ ok: false, error: 'No questions are configured in the question bank.' });
         }
 
@@ -366,11 +414,11 @@ export function registerGameSocket(io) {
 
     // -----------------------------------------------------------------
     // HOST: update-question
-    // Lobby-only pre-game editing of this session's questions (text,
-    // options, correct answer, time limit). Edits live in room memory —
-    // the shared question bank in Supabase is never mutated.
+    // Lobby-only pre-game editing of a question (text, options, correct
+    // answer, time limit). Saved to the shared question bank in Supabase
+    // so the change sticks for every future game.
     // -----------------------------------------------------------------
-    socket.on('update-question', (payload, callback) => {
+    socket.on('update-question', async (payload, callback) => {
       const ctx = requireHost(socket, callback);
       if (!ctx) return;
       const { room, ack } = ctx;
@@ -384,48 +432,184 @@ export function registerGameSocket(io) {
         return ack({ ok: false, error: 'Invalid question index.' });
       }
 
-      const questionText = String(payload?.questionText ?? '').trim().slice(0, MAX_QUESTION_LENGTH);
-      const options = payload?.options ?? {};
-      const cleaned = {};
-      for (const key of ['A', 'B', 'C', 'D']) {
-        cleaned[key] = String(options[key] ?? '').trim().slice(0, MAX_OPTION_LENGTH);
-        if (!cleaned[key]) {
-          return ack({ ok: false, error: `Option ${key} cannot be empty.` });
-        }
+      const fields = validateQuestionFields(payload);
+      if (fields.error) {
+        return ack({ ok: false, error: fields.error });
       }
 
-      if (!questionText) {
-        return ack({ ok: false, error: 'Question text cannot be empty.' });
+      const question = room.questions[index];
+      const { error } = await supabase
+        .from('questions')
+        .update({
+          question_text: fields.questionText,
+          option_a: fields.options.A,
+          option_b: fields.options.B,
+          option_c: fields.options.C,
+          option_d: fields.options.D,
+          correct_option: fields.correctOption,
+          time_limit_seconds: fields.timeLimitSeconds,
+        })
+        .eq('id', question.id);
+
+      if (error) {
+        console.error('[update-question] failed to save:', error.message);
+        return ack({ ok: false, error: 'Could not save the question. Please try again.' });
       }
 
-      const correctOption = String(payload?.correctOption ?? '').toUpperCase();
-      if (!['A', 'B', 'C', 'D'].includes(correctOption)) {
-        return ack({ ok: false, error: 'Correct option must be A, B, C, or D.' });
+      question.question_text = fields.questionText;
+      question.option_a = fields.options.A;
+      question.option_b = fields.options.B;
+      question.option_c = fields.options.C;
+      question.option_d = fields.options.D;
+      question.correct_option = fields.correctOption;
+      question.time_limit_seconds = fields.timeLimitSeconds;
+      touchRoom(room);
+
+      ack({ ok: true, question: toHostQuestion(question, index) });
+    });
+
+    // -----------------------------------------------------------------
+    // HOST: add-question
+    // Lobby-only. Inserts a new question at the end of the bank and
+    // appends it to this room. Acks the refreshed full list so client
+    // indexes stay in sync.
+    // -----------------------------------------------------------------
+    socket.on('add-question', async (payload, callback) => {
+      const ctx = requireHost(socket, callback);
+      if (!ctx) return;
+      const { room, ack } = ctx;
+
+      if (room.status !== 'lobby') {
+        return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
       }
 
-      const timeLimitSeconds = Math.round(Number(payload?.timeLimitSeconds));
-      if (
-        !Number.isFinite(timeLimitSeconds) ||
-        timeLimitSeconds < MIN_TIME_LIMIT_S ||
-        timeLimitSeconds > MAX_TIME_LIMIT_S
-      ) {
+      if (room.questions.length >= MAX_QUESTIONS) {
+        return ack({ ok: false, error: `A game can have at most ${MAX_QUESTIONS} questions.` });
+      }
+
+      const fields = validateQuestionFields(payload);
+      if (fields.error) {
+        return ack({ ok: false, error: fields.error });
+      }
+
+      const displayOrder =
+        room.questions.reduce((max, q) => Math.max(max, q.display_order ?? 0), 0) + 1;
+
+      const { data: question, error } = await supabase
+        .from('questions')
+        .insert({
+          question_text: fields.questionText,
+          option_a: fields.options.A,
+          option_b: fields.options.B,
+          option_c: fields.options.C,
+          option_d: fields.options.D,
+          correct_option: fields.correctOption,
+          time_limit_seconds: fields.timeLimitSeconds,
+          display_order: displayOrder,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[add-question] failed to insert:', error.message);
+        return ack({ ok: false, error: 'Could not add the question. Please try again.' });
+      }
+
+      // The room may have started or been swept while the insert was in
+      // flight — the bank row is saved either way.
+      if (!roomExists(room.gameCode) || room.status !== 'lobby') {
+        return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
+      }
+
+      room.questions.push(question);
+      touchRoom(room);
+
+      ack({ ok: true, questions: room.questions.map(toHostQuestion) });
+    });
+
+    // -----------------------------------------------------------------
+    // HOST: remove-question
+    // Lobby-only. Soft-deletes the bank row (is_active = false) so past
+    // sessions' response logs keep their FK target, and drops it from
+    // this room.
+    // -----------------------------------------------------------------
+    socket.on('remove-question', async (payload, callback) => {
+      const ctx = requireHost(socket, callback);
+      if (!ctx) return;
+      const { room, ack } = ctx;
+
+      if (room.status !== 'lobby') {
+        return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
+      }
+
+      const index = Number(payload?.index);
+      if (!Number.isInteger(index) || index < 0 || index >= room.questions.length) {
+        return ack({ ok: false, error: 'Invalid question index.' });
+      }
+
+      if (room.questions.length <= 1) {
+        return ack({ ok: false, error: 'A game needs at least one question.' });
+      }
+
+      const question = room.questions[index];
+      const { error } = await supabase
+        .from('questions')
+        .update({ is_active: false })
+        .eq('id', question.id);
+
+      if (error) {
+        console.error('[remove-question] failed to remove:', error.message);
+        return ack({ ok: false, error: 'Could not remove the question. Please try again.' });
+      }
+
+      // Re-locate by id: the list may have shifted while the write was in
+      // flight, and index-based removal would then hit the wrong question.
+      const currentIndex = room.questions.findIndex((q) => q.id === question.id);
+      if (currentIndex !== -1) room.questions.splice(currentIndex, 1);
+      touchRoom(room);
+
+      ack({ ok: true, questions: room.questions.map(toHostQuestion) });
+    });
+
+    // -----------------------------------------------------------------
+    // HOST: set-all-timers
+    // Lobby-only. Applies one time limit to every question in this game
+    // and persists it to the bank in a single update.
+    // -----------------------------------------------------------------
+    socket.on('set-all-timers', async (payload, callback) => {
+      const ctx = requireHost(socket, callback);
+      if (!ctx) return;
+      const { room, ack } = ctx;
+
+      if (room.status !== 'lobby') {
+        return ack({ ok: false, error: 'Questions can only be edited before the game starts.' });
+      }
+
+      const timeLimitSeconds = parseTimeLimit(payload?.timeLimitSeconds);
+      if (timeLimitSeconds === null) {
         return ack({
           ok: false,
           error: `Time limit must be between ${MIN_TIME_LIMIT_S} and ${MAX_TIME_LIMIT_S} seconds.`,
         });
       }
 
-      const question = room.questions[index];
-      question.question_text = questionText;
-      question.option_a = cleaned.A;
-      question.option_b = cleaned.B;
-      question.option_c = cleaned.C;
-      question.option_d = cleaned.D;
-      question.correct_option = correctOption;
-      question.time_limit_seconds = timeLimitSeconds;
+      const ids = room.questions.map((q) => q.id);
+      const { error } = await supabase
+        .from('questions')
+        .update({ time_limit_seconds: timeLimitSeconds })
+        .in('id', ids);
+
+      if (error) {
+        console.error('[set-all-timers] failed to save:', error.message);
+        return ack({ ok: false, error: 'Could not save the time limit. Please try again.' });
+      }
+
+      for (const question of room.questions) {
+        question.time_limit_seconds = timeLimitSeconds;
+      }
       touchRoom(room);
 
-      ack({ ok: true, question: toHostQuestion(question, index) });
+      ack({ ok: true, questions: room.questions.map(toHostQuestion) });
     });
 
     // -----------------------------------------------------------------

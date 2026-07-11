@@ -61,6 +61,29 @@ export default function HostAdmin() {
     });
   };
 
+  // add/remove/set-all acks carry the full refreshed list so client indexes
+  // can never drift from the server's.
+  const handleAddQuestion = (draft, done) => {
+    socket.emit('add-question', draft, (res) => {
+      if (res.ok) setQuestions(res.questions);
+      done(res);
+    });
+  };
+
+  const handleRemoveQuestion = (index, done) => {
+    socket.emit('remove-question', { index }, (res) => {
+      if (res.ok) setQuestions(res.questions);
+      done(res);
+    });
+  };
+
+  const handleSetAllTimers = (timeLimitSeconds, done) => {
+    socket.emit('set-all-timers', { timeLimitSeconds }, (res) => {
+      if (res.ok) setQuestions(res.questions);
+      done(res);
+    });
+  };
+
   if (phase === 'loading') {
     return (
       <>
@@ -99,7 +122,7 @@ export default function HostAdmin() {
               Game {gameCode}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              Keep this page off the shared screen. Changes apply to this game only.
+              Keep this page off the shared screen. Changes are saved and stay for future games.
             </p>
           </div>
           <Link to="/host" className="btn-ghost shrink-0 rounded-2xl px-5 py-2.5 text-sm font-bold">
@@ -108,7 +131,13 @@ export default function HostAdmin() {
         </header>
 
         <div className="animate-float-up" style={{ animationDelay: '120ms' }}>
-          <QuestionEditor questions={questions} onSave={handleSaveQuestion} />
+          <QuestionEditor
+            questions={questions}
+            onSave={handleSaveQuestion}
+            onAdd={handleAddQuestion}
+            onRemove={handleRemoveQuestion}
+            onSetAllTimers={handleSetAllTimers}
+          />
         </div>
       </div>
     </>

@@ -42,7 +42,7 @@
  * }
  */
 
-export const MAX_PLAYERS_PER_ROOM = 200;
+export const MAX_PLAYERS_PER_ROOM = 300;
 export const MAX_ACTIVE_ROOMS = 100;
 export const MAX_NICKNAME_LENGTH = 20;
 
